@@ -1,0 +1,5 @@
+# Vendored Spec Kit assets. Managed by the `specify` CLI and overwritten on
+# upgrade, so they are excluded from this repo's formatter rather than
+# reformatted. oxfmt reads this file by default (see `oxfmt --ignore-path`).
+.specify/
+.opencode/commands/
