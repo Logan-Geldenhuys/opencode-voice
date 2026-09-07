@@ -12,6 +12,10 @@ spoken aloud via Piper TTS. Both directions use an LLM to normalize text for
 natural speech (fixing homophones, splitting camelCase identifiers, summarizing
 code-heavy responses, etc.).
 
+There is also a hands-free mode: leave it listening, think aloud across as many
+pauses as you like, and say a wake phrase to send everything you have said to
+the agent. See [Continuous listening](#continuous-listening-optional).
+
 ## Install
 
 Add to your `tui.json` (create at `~/.config/opencode/tui.json` if it doesn't
@@ -383,6 +387,95 @@ Log in to opencode, or set apiKeyEnv to a variable that holds a token.
 A credential that resolves but is refused by the service reads differently, and
 distinguishes a token to renew (401) from a model the account may not use (403).
 
+### Continuous listening (optional)
+
+Held-key dictation records while you hold a key. Continuous listening is the
+other shape: it stays on, transcribes whatever you say, and holds the result in
+a buffer until you speak a wake phrase. The phrase is what sends the buffer to
+the agent, so you can think aloud across as many pauses as you like and then
+commit in one breath.
+
+It needs `sttApiEndpoint`; the segments are short and frequent, and local
+`whisper-cli` is not fast enough to keep up on CPU.
+
+```jsonc
+{
+  "plugin": [
+    [
+      "@renjfk/opencode-voice",
+      {
+        "sttApiEndpoint": "{env:MY_GATEWAY_URL}",
+        "listenSilenceDurationMs": 700,
+        "listenSilenceThreshold": "2%",
+        "listenMinSegmentMs": 400,
+        "listenAutoSubmit": true,
+        "listenWakePhrases": [
+          {
+            "canonical": "opencode execute",
+            "variants": ["open code execute"],
+            "action": "submit",
+          },
+          {
+            "canonical": "opencode stop and execute",
+            "variants": ["open code stop and execute", "opencode stop execute"],
+            "action": "interrupt_submit",
+          },
+        ],
+      },
+    ],
+  ],
+}
+```
+
+Segmentation:
+
+- `listenSilenceDurationMs` _(optional)_ - how long a pause ends an utterance (default: `700`)
+- `listenSilenceThreshold` _(optional)_ - what counts as silence, in sox's own notation (default: `"2%"`). Passed to the recorder unchanged and deliberately not validated by the plugin
+- `listenMinSegmentMs` _(optional)_ - captures shorter than this are discarded without a transcription request (default: `400`). This is the cost gate: a cough should not become a billed request
+- `listenMaxSegmentMs` _(optional)_ - upper bound on a single utterance, after which the recorder is stopped normally (default: `30000`)
+
+Buffer:
+
+- `listenMaxBufferAgeMs` _(optional)_ - speech older than this is dropped (default: `3600000`, one hour)
+- `listenMaxBufferChars` _(optional)_ - size bound on the buffer (default: `64000`, roughly an hour of speech). When exceeded, whole utterances are evicted oldest first; an utterance is never truncated
+
+The two bounds describe the same envelope from different directions: the size
+bound is what fires when you have been talking, the age bound is what fires when
+you have not. Neither is a staleness policy - if you have been away from the
+desk, `/listen-discard` is the honest answer.
+
+Wake phrases and submission:
+
+- `listenWakePhrases` _(optional)_ - array of `{canonical, variants, action}`, where `action` is `"submit"` or `"interrupt_submit"`. A phrase must be at least two words, and two phrases may not compile to the same words with different actions. When two phrases share a prefix, the longer one wins
+- `listenTranscriptLabel` _(optional)_ - text prefixed to every submission, warning the agent that what follows is a voice transcript
+- `listenAutoSubmit` _(optional)_ - whether the wake phrase submits the prompt or just fills it (default: `true`). With `false`, the buffer still advances and the interrupt phrase still stops the agent; only the final send is left to you. Useful for the first session
+
+There is no LLM correction pass on continuously captured speech. Correcting each
+submission would add latency to every one of them, and a correction model that
+is confident and wrong substitutes plausible identifiers for the ones you
+actually said. Instead `listenTranscriptLabel` tells the agent it is reading a
+transcript, and the agent has the project in front of it to check against -
+which the correction pass does not.
+
+#### Calibrating the wake phrases
+
+Recognition of a two- or three-word phrase varies with voice, microphone and
+service. Rather than guess, calibrate once:
+
+1. Start with `"listenAutoSubmit": false` so nothing is sent while you tune
+2. Toggle listening on with `/listen-toggle` and speak each phrase ten times, at
+   normal speed, quickly, and with a pause in the middle
+3. Read the recogniser's actual output from the OpenCode log and add every form
+   it produced to that phrase's `variants`
+4. Repeat until each phrase triggers the intended action at least nine times out
+   of ten, and the interrupt phrase never once behaves as a plain submission
+5. Set `"listenAutoSubmit": true`
+
+The output of this procedure is your `variants` lists. Explicit variants fail
+predictably and are inspectable; fuzzy matching would trade a known
+false-negative rate for an unknown false-positive rate, and a false positive
+sends unintended speech to an agent holding file-modifying tools.
+
 ### Custom prompts
 
 The LLM system prompts used for normalization can be fully replaced by pointing
@@ -431,6 +524,25 @@ device listing, "System default" uses sox's default device (`sox -d`).
 and only affects local `whisper-cli` transcription, not the STT API. Languages
 outside the list can be set via the `sttLanguage` plugin option.
 
+### Continuous listening
+
+| Command           | Description                                          |
+| ----------------- | ---------------------------------------------------- |
+| `/listen-toggle`  | Start or stop continuous listening                   |
+| `/listen-status`  | Report whether it is listening, and what is buffered |
+| `/listen-discard` | Throw away the buffer and keep listening             |
+
+Listening is never on at startup, and nothing about it is persisted - reopening
+the editor to a live microphone is the failure this avoids.
+
+`/listen-status` reports how long it has been listening, how many utterances are
+buffered, their size and the age of the oldest, the configured phrases, and the
+buffered text itself. It answers correctly while a transcription is in flight.
+
+The two capture modes are alternatives, not layers. Starting one while the other
+holds the microphone is refused, and the refusal names the mode that has it and
+the command that stops it.
+
 ### Text-to-speech
 
 The `leader` key in OpenCode is `ctrl+x`. So `leader+s` means press `ctrl+x`
@@ -458,6 +570,33 @@ then `s`.
    when `/stt-submit` is used. If normalization fails (e.g. LLM endpoint
    unreachable), the raw transcription is used as a fallback so you never lose
    your input
+
+### Continuous listening pipeline
+
+1. `sox` records one utterance, stopping itself when you pause for
+   `listenSilenceDurationMs`. The recorder's exit _is_ the segment boundary, so
+   nothing has to work out when a segment finished
+2. Captures shorter than `listenMinSegmentMs` are discarded without a request.
+   The rest are transcribed by the STT API, and the audio is deleted either way
+3. The text is appended to the buffer, and the next recorder starts. Only one
+   utterance is ever on disk, and only for as long as its request takes
+4. After every append, the buffer is searched for a wake phrase. The search runs
+   across the whole buffer rather than one utterance, so a phrase split by a
+   pause still matches
+5. On a match, everything before the phrase is sent; the phrase itself is
+   dropped, and anything after it stays buffered for the next submission. What
+   is sent is the text exactly as transcribed - the plugin matches on a
+   normalised copy but never sends one, so `Server.tsx` arrives as `Server.tsx`
+
+The plain phrase always submits and never stops the agent, whatever the agent
+happens to be doing; the interrupt phrase stops it first, and is not an error
+when there is nothing to stop. Reading the agent's state to decide would make
+the two phrases indistinguishable in the one situation where the distinction
+matters.
+
+A single failed transcription is logged and dropped, costing you one utterance.
+Three consecutive failures are surfaced, because a session that silently drops
+every segment leaves you talking to a microphone that is recording nothing.
 
 ### TTS pipeline
 

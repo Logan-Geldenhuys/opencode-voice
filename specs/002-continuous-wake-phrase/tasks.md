@@ -96,15 +96,15 @@ Attempting to distribute this across the stories would create false independence
 
 ### Implementation for User Story 1
 
-- [X] T023 [US1] Append each transcribed segment to the buffer in `lib/listen.js` as `{text, capturedAt}` where `capturedAt` is when the speech was captured rather than when transcription completed, per the Buffer entry entity in `specs/002-continuous-wake-phrase/data-model.md`, because using transcription time would let a slow request make old speech look recent
-- [X] T024 [US1] Implement age-bound eviction in `lib/listen.js` against `listenMaxBufferAgeMs`, enforced both on append and immediately before submission, evicting whole entries oldest-first and never truncating partway through one (FR-014)
-- [X] T025 [US1] Implement size-bound eviction in `lib/listen.js` against `listenMaxBufferChars`, also whole-entry and oldest-first, because an entry's tokens carry offsets into its own text and a partial slice would leave them pointing at text that is no longer there
-- [X] T026 [US1] Run wake detection after every segment append in `lib/listen.js`, which is what makes the at-most-one-undetected-phrase invariant hold, and implement no last-occurrence-wins rule, per plan.md Phase C
-- [X] T027 [US1] Implement submission assembly in `lib/listen.js` in the order fixed by research.md R-109: expire, locate the token run, slice the originals, and replace the buffer with the retained tail, all completing before the first `await`; then prefix the label, apply the empty check, and submit from the value already in hand. Replacing the buffer with the retained tail is what clears it and begins fresh accumulation (FR-006). Add no lock, mutex or append queue
-- [X] T028 [US1] Prefix every submitted prompt with `listenTranscriptLabel` in `lib/listen.js` (FR-009), which is the entire substitute for a correction pass, and make no language-model correction call on continuous speech (FR-010)
-- [X] T029 [US1] Guard the empty-buffer path in `lib/listen.js` so a wake phrase with nothing accumulated submits nothing and reports why, naming which bound evicted the speech when a bound is the reason (FR-016)
-- [X] T030 [US1] Implement `listenAutoSubmit: false` in `lib/listen.js` exactly as specified in `specs/002-continuous-wake-phrase/contracts/listen-options.md`: the prompt is filled and left unsubmitted, the buffer is still replaced by the retained tail, and only the final submit is skipped
-- [X] T031 [P] [US1] Extend `test/listen.test.js` with the buffer tests: both bounds evicting oldest-first and whole-entry; a retained entry never truncated mid-entry; a segment transcribed during assembly landing in the next buffer rather than being lost or duplicated; and the empty-buffer path issuing no submission
+- [x] T023 [US1] Append each transcribed segment to the buffer in `lib/listen.js` as `{text, capturedAt}` where `capturedAt` is when the speech was captured rather than when transcription completed, per the Buffer entry entity in `specs/002-continuous-wake-phrase/data-model.md`, because using transcription time would let a slow request make old speech look recent
+- [x] T024 [US1] Implement age-bound eviction in `lib/listen.js` against `listenMaxBufferAgeMs`, enforced both on append and immediately before submission, evicting whole entries oldest-first and never truncating partway through one (FR-014)
+- [x] T025 [US1] Implement size-bound eviction in `lib/listen.js` against `listenMaxBufferChars`, also whole-entry and oldest-first, because an entry's tokens carry offsets into its own text and a partial slice would leave them pointing at text that is no longer there
+- [x] T026 [US1] Run wake detection after every segment append in `lib/listen.js`, which is what makes the at-most-one-undetected-phrase invariant hold, and implement no last-occurrence-wins rule, per plan.md Phase C
+- [x] T027 [US1] Implement submission assembly in `lib/listen.js` in the order fixed by research.md R-109: expire, locate the token run, slice the originals, and replace the buffer with the retained tail, all completing before the first `await`; then prefix the label, apply the empty check, and submit from the value already in hand. Replacing the buffer with the retained tail is what clears it and begins fresh accumulation (FR-006). Add no lock, mutex or append queue
+- [x] T028 [US1] Prefix every submitted prompt with `listenTranscriptLabel` in `lib/listen.js` (FR-009), which is the entire substitute for a correction pass, and make no language-model correction call on continuous speech (FR-010)
+- [x] T029 [US1] Guard the empty-buffer path in `lib/listen.js` so a wake phrase with nothing accumulated submits nothing and reports why, naming which bound evicted the speech when a bound is the reason (FR-016)
+- [x] T030 [US1] Implement `listenAutoSubmit: false` in `lib/listen.js` exactly as specified in `specs/002-continuous-wake-phrase/contracts/listen-options.md`: the prompt is filled and left unsubmitted, the buffer is still replaced by the retained tail, and only the final submit is skipped
+- [x] T031 [P] [US1] Extend `test/listen.test.js` with the buffer tests: both bounds evicting oldest-first and whole-entry; a retained entry never truncated mid-entry; a segment transcribed during assembly landing in the next buffer rather than being lost or duplicated; and the empty-buffer path issuing no submission
 
 ### Verification for User Story 1
 
@@ -126,9 +126,9 @@ Attempting to distribute this across the stories would create false independence
 
 ### Implementation for User Story 2
 
-- [X] T037 [US2] Implement the interrupt action in `lib/listen.js` by calling `client.session.abort({sessionID})` with flat parameters before the submit step, per `specs/002-continuous-wake-phrase/contracts/commands.md`, and continue to the submission even if the abort itself fails
-- [X] T038 [US2] Skip the abort without raising an error when the agent is idle (FR-007), so the interrupt phrase behaves as a plain submission rather than reporting that there was nothing to interrupt
-- [X] T039 [US2] Confirm by source inspection that the plain submission phrase in `lib/listen.js` never aborts the agent regardless of whether it is working, because reinterpreting a phrase based on incidental agent state would make the two phrases indistinguishable in exactly the situation where the distinction matters
+- [x] T037 [US2] Implement the interrupt action in `lib/listen.js` by calling `client.session.abort({sessionID})` with flat parameters before the submit step, per `specs/002-continuous-wake-phrase/contracts/commands.md`, and continue to the submission even if the abort itself fails
+- [x] T038 [US2] Skip the abort without raising an error when the agent is idle (FR-007), so the interrupt phrase behaves as a plain submission rather than reporting that there was nothing to interrupt
+- [x] T039 [US2] Confirm by source inspection that the plain submission phrase in `lib/listen.js` never aborts the agent regardless of whether it is working, because reinterpreting a phrase based on incidental agent state would make the two phrases indistinguishable in exactly the situation where the distinction matters
 
 ### Verification for User Story 2
 
@@ -147,11 +147,11 @@ Attempting to distribute this across the stories would create false independence
 
 ### Implementation for User Story 3
 
-- [X] T042 [US3] Announce every listening transition in `lib/listen.js` at the moment it occurs — starting, stopping, and each submission (FR-012) — using the host toast facility, holding no persistent indicator open
-- [X] T043 [US3] Register the status command in `index.js` as `listen.status` with `slash: { name: "listen-status" }`, reporting whether listening is active, how long it has been, the segment count, the buffer size in characters, the age of the oldest entry, the configured phrases, and the accumulated text itself. It MUST answer correctly while a transcription is in flight
-- [X] T044 [US3] Register the discard command in `index.js` as `listen.discard` with `slash: { name: "listen-discard" }`, clearing the buffer without submitting it while listening continues (FR-013). This is the recovery path for both hazards the spec accepts
-- [X] T045 [P] [US3] Extend `test/listen.test.js` to assert the status snapshot is correct mid-transcription, that discard leaves the session active, and that a fresh session reports inactive with an empty buffer
-- [X] T046 [US3] Confirm by source inspection that no separate inspect-buffer command exists, per `specs/002-continuous-wake-phrase/contracts/commands.md`: status reports the text, and two commands reporting the same state could disagree
+- [x] T042 [US3] Announce every listening transition in `lib/listen.js` at the moment it occurs — starting, stopping, and each submission (FR-012) — using the host toast facility, holding no persistent indicator open
+- [x] T043 [US3] Register the status command in `index.js` as `listen.status` with `slash: { name: "listen-status" }`, reporting whether listening is active, how long it has been, the segment count, the buffer size in characters, the age of the oldest entry, the configured phrases, and the accumulated text itself. It MUST answer correctly while a transcription is in flight
+- [x] T044 [US3] Register the discard command in `index.js` as `listen.discard` with `slash: { name: "listen-discard" }`, clearing the buffer without submitting it while listening continues (FR-013). This is the recovery path for both hazards the spec accepts
+- [x] T045 [P] [US3] Extend `test/listen.test.js` to assert the status snapshot is correct mid-transcription, that discard leaves the session active, and that a fresh session reports inactive with an empty buffer
+- [x] T046 [US3] Confirm by source inspection that no separate inspect-buffer command exists, per `specs/002-continuous-wake-phrase/contracts/commands.md`: status reports the text, and two commands reporting the same state could disagree
 
 ### Verification for User Story 3
 
@@ -166,13 +166,13 @@ Attempting to distribute this across the stories would create false independence
 
 **Purpose**: The success criteria that span stories, measured rather than asserted
 
-- [X] T049 Confirm `npm run check` clean and `npm run test` passing at repository root, with `test/wake.test.js`, `test/listen.test.js` and `test/capture.test.js` all included
+- [x] T049 Confirm `npm run check` clean and `npm run test` passing at repository root, with `test/wake.test.js`, `test/listen.test.js` and `test/capture.test.js` all included
 - [ ] T050 [P] Confirm SC-006 using the lifecycle checks in `specs/002-continuous-wake-phrase/quickstart.md`: at no point during or after a session does audio remain on disk beyond the segment currently being transcribed, and killing the editor mid-session with `kill -9` leaves no recorder running and no audio behind
 - [ ] T051 [P] Confirm SC-008 by injecting transcription request failures at one in five and verifying the session continues and successful submissions still occur
 - [ ] T052 [P] Confirm SC-005 by driving the segment-handling path with captures on both sides of `listenMinSegmentMs` and counting the requests issued, which must be zero below the threshold
 - [ ] T053 [P] Confirm SC-010 across repeated attempts: held-key dictation while listening is refused every time with the active mode named, and at no point do two capture processes run at once
 - [ ] T054 [P] Confirm SC-004 across a continuous listening period of normal technical conversation that deliberately excludes the wake phrases, with zero unintended submissions
-- [ ] T055 Update `README.md` to document the listening mode, the `listen*` options, the two wake phrases and their variants, and the two one-time calibrations, since the upstream README documents neither the mode nor the options
+- [x] T055 Update `README.md` to document the listening mode, the `listen*` options, the two wake phrases and their variants, and the two one-time calibrations, since the upstream README documents neither the mode nor the options
 - [ ] T056 Walk `specs/002-continuous-wake-phrase/quickstart.md` end to end on a clean editor start and confirm every check passes
 
 ---
