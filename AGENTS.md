@@ -35,3 +35,13 @@ RELEASE_PROCESS.md for release steps.
 - **No build step** - no TypeScript, no bundler
 - **Formatting** - enforced by oxfmt
 - **Linting** - enforced by oxlint
+
+<!-- SPECKIT START -->
+
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan:
+`specs/001-enterprise-gateway-stt/plan.md`
+
+The plan for the follow-on feature is `specs/002-continuous-wake-phrase/plan.md`.
+It depends on 001 and must not be started before 001 Phase B is complete.
+<!-- SPECKIT END -->
