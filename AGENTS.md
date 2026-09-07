@@ -43,5 +43,6 @@ shell commands, and other important information, read the current plan:
 `specs/001-enterprise-gateway-stt/plan.md`
 
 The plan for the follow-on feature is `specs/002-continuous-wake-phrase/plan.md`.
-It depends on 001 and must not be started before 001 Phase B is complete.
+Feature 001 is implemented, so its prerequisite is satisfied. Start 002 at Phase A0,
+which moves the capture registry out of `lib/stt.js` into `lib/capture.js`.
 <!-- SPECKIT END -->

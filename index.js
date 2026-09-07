@@ -35,12 +35,11 @@
 
 import fs from "node:fs";
 import os from "node:os";
-import {
-  disposeCapturesSync,
-  registerSTT,
-  removeCaptureDir,
-  stopActiveCapture,
-} from "./lib/stt.js";
+import { registerSTT } from "./lib/stt.js";
+// Teardown binds to the capture layer directly rather than to whichever mode
+// happens to re-export it, so a capture created by continuous listening is
+// reachable by the same hooks as one created by dictation (FR-020).
+import { disposeCapturesSync, removeCaptureDir, stopActiveCapture } from "./lib/capture.js";
 import { registerTTS } from "./lib/tts.js";
 import { createClient } from "./lib/llm-client.js";
 import { createCredentialResolver } from "./lib/auth.js";

@@ -17,20 +17,24 @@ Static configuration, added to the options established by feature 001's `contrac
 
 `listenSilenceThreshold` is passed through to the recorder unchanged and is **not** validated by the plugin. The recorder accepts percentages and decibel values with its own grammar; validating the string would mean reimplementing that grammar, which would then be wrong in a different way than the recorder is. A rejected threshold surfaces as the recorder's own error, which names the value and is more accurate than anything the plugin could say about it.
 
-`listenMaxSegmentMs` is a safety valve, not a segmentation strategy. Constant background noise can prevent silence ever being detected; without a cap, one segment grows until the session ends and nothing is ever transcribed.
+`listenMaxSegmentMs` bounds how long a single recorder may run before it is asked to stop. It costs one timer: on expiry the plugin calls `stop()` on the capture, and the recorder exits down the same path a pause would have taken it. Because it reuses the normal stop, it is not a second segmentation mechanism and needs no separate completion handling.
 
 `listenMinSegmentMs` is the cost gate. Every segment above it is a paid request, so the value directly determines whether a cough or a keystroke costs money. SC-005 asserts that silence and noise generate no requests.
 
 ## Buffer
 
-| Option                 | Type   | Default  | Meaning                                    |
-| ---------------------- | ------ | -------- | ------------------------------------------ |
-| `listenMaxBufferAgeMs` | number | `300000` | Speech older than this is dropped (FR-014) |
-| `listenMaxBufferChars` | number | `8000`   | Cap on assembled prompt size               |
+| Option                 | Type   | Default   | Meaning                                    |
+| ---------------------- | ------ | --------- | ------------------------------------------ |
+| `listenMaxBufferAgeMs` | number | `3600000` | Speech older than this is dropped (FR-014) |
+| `listenMaxBufferChars` | number | `64000`   | Cap on accumulated text (FR-014)           |
 
-Five minutes for the age bound: long enough to think aloud through a problem, short enough that speech from a previous train of thought cannot be submitted by a later wake phrase. This is the primary mitigation for the _listening left on and forgotten_ hazard, and SC-009 asserts it holds.
+One hour for the age bound, and roughly one hour of speech for the size bound. They are sized to coincide deliberately, so that neither dominates and neither is dead configuration: 64,000 characters is about 10,600 words, which is an hour at a fast conversational 175 words per minute. Talking without pause for an hour reaches the size bound slightly before the clock reaches the age bound; anything less continuous reaches the age bound first.
 
-The character cap protects against an unbounded prompt after a long unattended session. When exceeded, the **oldest** text is dropped — the newest speech is the operative instruction.
+That gives each one a distinct job. The size bound is what fires when the developer has been talking, and it is the one that fires in practice. The age bound is the backstop for a session left running through a long silence, where little was said but a lot of time passed.
+
+An hour is not a staleness policy and is not pretending to be one. An earlier draft used five minutes and justified it as the mitigation for the _listening left on and forgotten_ hazard. It is not much of one: five minutes is long enough to submit the wrong train of thought and short enough to silently discard speech the developer still wanted, which is the worse of the two failures because nothing reports it. The real mitigation is FR-013 — inspect the buffer, discard it, or stop listening. The bounds exist so that memory and prompt size stay finite, and 64,000 characters is around 16,000 tokens, a large but entirely ordinary prompt.
+
+When either bound is exceeded, the **oldest entries** are evicted until it is not. Eviction removes whole entries, never part of one: an entry is the unit the tokeniser works on and its token spans index into its own text, so trimming characters off the front of an entry would leave those spans pointing at text that is no longer there.
 
 ## Wake phrases
 
@@ -51,7 +55,9 @@ Default:
 ]
 ```
 
-Validated at compile time against `contracts/wake-phrase.md`: no empty phrases, no single-word phrases, no two actions sharing a normalised form. A single-word phrase is rejected outright rather than warned about — it will fire during ordinary speech, and the failure is an unintended submission to an agent with file-modifying tools.
+Validated at compile time against `contracts/wake-phrase.md`: no empty phrases, no single-token phrases, no two actions compiling to the same token sequence. A single-token phrase is rejected outright rather than warned about — it will fire during ordinary speech, and the failure is an unintended submission to an agent with file-modifying tools.
+
+The `variants` lists above are starting points, not measurements. Establishing which distortions this developer's voice and room actually produce is the calibration procedure in quickstart.md, and its output is these lists (SC-012).
 
 ## Submission
 
@@ -68,6 +74,8 @@ This label is the entire substitute for a correction pass (FR-010, research.md R
 
 `listenAutoSubmit` defaults to `true`, inverting feature 001's review-before-send default. That inversion is deliberate and is justified in the spec: the wake phrase _is_ the developer's confirming act. The option exists so the inversion can be undone during tuning, when a developer may want to see what a wake phrase would have submitted before trusting it to submit.
 
+When `false`, the assembled prompt is placed in the editor's prompt and left there, unsubmitted. Everything else is unchanged: the buffer is still replaced by the retained tail, and the interrupt phrase still aborts the agent before filling the prompt. Only the final submit is skipped. Spelling this out matters because the alternative readings are both wrong — leaving the buffer intact would make the next wake phrase resubmit everything, and skipping the abort would make the interrupt phrase silently stop being an interrupt.
+
 ## State reporting
 
 No option. An earlier draft added `listenIndicator` with `auto`, `slot` and `signal` modes, selecting between a persistent in-editor indicator and a signalling fallback.
@@ -76,15 +84,20 @@ There is nothing left to select between. The host's toast facility returns no ha
 
 ## Interaction with feature 001
 
-| Reused unchanged                | Notes                                                |
-| ------------------------------- | ---------------------------------------------------- |
-| Transcription endpoint and tier | Same service, same `gpt-transcribe` tier             |
-| Credential resolution           | Per-request, from the editor credential store        |
-| Capture object                  | Owns its process and its audio file; one per segment |
-| Capture directory               | Per plugin load, owner-only, beneath the OS temp dir |
-| Request timeout                 | Applies per segment                                  |
+| Reused                          | Notes                                                            |
+| ------------------------------- | ---------------------------------------------------------------- |
+| Transcription endpoint and tier | Same service, same `gpt-transcribe` tier                         |
+| Credential resolution           | Per-request, from the editor credential store                    |
+| Capture object                  | Owns its process and its audio file; one per segment             |
+| Capture directory               | Per plugin load, owner-only, beneath the OS temp dir             |
+| Request timeout                 | Applies per segment                                              |
+| Capture registry                | Moved to `lib/capture.js` by Phase A0, then shared by both modes |
 
-The capture object is the load-bearing reuse. Feature 001's Phase B replaces module-level process and path variables with an object that owns both, which is what allows this feature to run a capture at all without the two paths interfering. Note that FR-017 makes the two modes mutually exclusive, so they never capture concurrently — but the audio path must still be per-capture, because segments within a single listening session follow one another closely enough that a fixed path would have one truncating the next.
+The capture object is the load-bearing reuse. Feature 001 replaced module-level process and path variables with an object owning both, which is what allows this feature to run a recorder at all without the two paths interfering. Each recorder produces one segment and exits, so the object's `exited` promise is the segment boundary and its `stop()` is how the maximum-duration bound is applied.
+
+One thing is **not** reused as it stands, and Phase A0 exists to fix it: the record of what is currently capturing lives in a module variable inside `lib/stt.js`, along with the temp-directory helper and the sequence counter, and the plugin's dispose and process-exit hooks drain that variable. A recorder owned by a listening session would not appear in it, so on abnormal exit a live recorder and a file of the developer's voice would survive — the case FR-020 names. The same variable is what FR-017's exclusion check has to consult, and two per-mode flags can disagree with each other and with the operating system where one shared record cannot. Phase A0 moves the registry into `lib/capture.js` and widens it from one slot to a set. Nothing about the capture object's shape changes.
+
+FR-017 makes the two modes mutually exclusive, so they never capture concurrently — but the audio path must still be per-capture, because the next recorder in a listening session starts while the previous segment is still being uploaded.
 
 **Not used**: the correction endpoint and model. This feature makes no LLM calls (FR-010). Correction configuration remains valid for held-key dictation and is simply not consulted here.
 
@@ -112,11 +125,10 @@ Extends feature 001's, adding only what differs from the defaults:
     "model": "gpt-4.1",
     "sttVocabulary": ["opencode", "oxlint", "oxfmt", "WSL", "PulseAudio"],
     "listenSilenceDurationMs": 700,
-    "listenMaxBufferAgeMs": 300000,
   },
 ]
 ```
 
-Wake phrases are omitted, so the defaults apply. `sttVocabulary` already contains `opencode`, which biases recognition of both phrases' shared prefix — the cheapest available improvement to SC-002.
+Wake phrases and both buffer bounds are omitted, so the defaults apply. `sttVocabulary` already contains `opencode`, which biases recognition of both phrases' shared prefix — the cheapest available improvement to SC-012.
 
 The endpoint uses the editor's own `{env:NAME}` substitution rather than a paired `...Env` option, per feature 001's `contracts/plugin-options.md` and research.md R-008. Only the transcription endpoint appears, because the correction endpoint defaults from it and this feature makes no LLM calls in any case.

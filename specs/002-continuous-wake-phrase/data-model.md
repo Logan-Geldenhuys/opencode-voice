@@ -4,13 +4,13 @@
 
 Nothing here is persisted. The buffer in particular MUST NOT be written to disk: FR-014 bounds how old speech may be before it is discarded, and persisting it across restarts would defeat that bound entirely.
 
-Entities from feature 001 — Credential, Capture, Service configuration — are reused unchanged and are not restated.
+Entities from feature 001 — Credential, Capture, Service configuration — are reused and are not restated. One change is required to Capture and it is one of ownership, not of shape: the record of what is currently capturing moves out of `lib/stt.js` into `lib/capture.js` and widens from a single slot to a set, so that both capture modes and the teardown paths consult the same record. See plan.md Phase A0 and research.md R-108.
 
 ---
 
 ## Segment
 
-One continuous stretch of speech bounded by pauses.
+One continuous stretch of speech bounded by pauses. One recorder process produces exactly one segment and then exits, so a segment corresponds one-to-one with a recorder lifetime and its boundary is the recorder's exit rather than something inferred about a file (research.md R-101).
 
 | Field        | Type           | Notes                                                                        |
 | ------------ | -------------- | ---------------------------------------------------------------------------- |
@@ -26,24 +26,27 @@ One continuous stretch of speech bounded by pauses.
 
 **Lifetime**
 
-From pause detection to transcription completion or failure. Deliberately shorter than the buffer entry it produces.
+From recorder start to transcription completion or failure. Deliberately shorter than the buffer entry it produces.
 
 **Disposal**
 
 Audio deleted as soon as transcription completes or fails (FR-018). At most one segment's audio exists at a time; SC-006 asserts nothing beyond the segment currently in flight.
 
-Each segment writes a distinct file rather than reusing a fixed path. This is not defensive: segments within a single session follow one another closely enough that a fixed path would let one capture truncate the previous segment's audio while it was still being uploaded. Feature 001's capture object supplies this, which is why it is a prerequisite rather than a convenience.
+Each segment writes a distinct file rather than reusing a fixed path. This is not defensive: the next recorder starts while the previous segment is still being uploaded, so a fixed path would let one capture truncate audio that is mid-request. Feature 001's capture object supplies the per-capture path, which is why it is a prerequisite rather than a convenience.
 
 **State transitions**
 
 ```text
-capturing --pause detected--> complete
-complete  --too short--------> discarded (audio deleted, no request)
-complete  --transcribe-------> transcribed (audio deleted) --> appended to buffer
-complete  --transcribe fail--> failed (audio deleted, session continues)
+recording --recorder exits on silence--> complete
+recording --max duration reached-------> complete (stop requested, recorder exits)
+complete  --too short------------------> discarded (audio deleted, no request)
+complete  --transcribe-----------------> transcribed (audio deleted) --> appended to buffer
+complete  --transcribe fail------------> failed (audio deleted, session continues)
 
-any state --session stops----> discarded (audio deleted)
+any state --session stops--------------> discarded (audio deleted)
 ```
+
+Both routes to `complete` end the same way — the recorder exits and its `exited` promise settles — so the maximum-duration bound is a request to stop early rather than a second completion mechanism.
 
 ---
 
@@ -64,16 +67,21 @@ The distinction matters: age is measured from when the developer spoke, which is
 
 Ordered accumulation of entries since the last submission.
 
-| Field      | Type          | Notes                     |
-| ---------- | ------------- | ------------------------- |
-| `entries`  | BufferEntry[] | Chronological             |
-| `maxAgeMs` | number        | Configured bound (FR-014) |
+| Field      | Type          | Notes                          |
+| ---------- | ------------- | ------------------------------ |
+| `entries`  | BufferEntry[] | Chronological                  |
+| `maxAgeMs` | number        | Configured age bound (FR-014)  |
+| `maxChars` | number        | Configured size bound (FR-014) |
 
 **Validation**
 
-- Entries older than `maxAgeMs` MUST be dropped. Enforced **both** on append and immediately before submission — appending alone is insufficient, because a buffer can sit untouched while the developer is silent and then be submitted by a wake phrase. SC-009 asserts that speech older than the bound never appears in a submitted prompt.
+- Entries older than `maxAgeMs` MUST be dropped. Enforced **both** on append and immediately before submission — appending alone is insufficient, because a buffer can sit untouched while the developer is silent and then be submitted by a wake phrase.
+- When the total text exceeds `maxChars`, the oldest entries MUST be evicted until it does not.
+- Both bounds MUST evict **whole entries**. Never part of one. An entry is the unit the tokeniser works on and its token offsets index into its own text; evicting characters out from under them would leave the offsets pointing at text that is no longer there. Whole-entry eviction keeps the entry the atom it already is everywhere else in the feature.
 - A buffer with no usable text MUST NOT be submitted, and the developer MUST be told why (FR-016).
 - The buffer MUST be inspectable and discardable without submitting (FR-013).
+
+The two bounds describe the same envelope from different directions and are sized to coincide: an hour of wall clock, and roughly an hour of continuous speech. The size bound is what fires when the developer has been talking; the age bound is what fires when they have not. In practice the size bound is the operative one, because talking non-stop for an hour reaches it slightly before the clock does, and the age bound is the backstop for a session left running over a long silence. SC-009 asserts only that eviction is oldest-first and leaves retained entries undamaged; neither bound is the feature's real protection against submitting stale speech, because both are an hour wide. That protection is inspecting and discarding the buffer (FR-013).
 
 **Lifetime**
 
@@ -82,26 +90,30 @@ Created when listening starts. Cleared on every submission. Destroyed when liste
 **Assembly on submission**
 
 1. Drop expired entries.
-2. Locate the wake phrase across the remaining entries, matching on a normalised join.
-3. Map the match position back into the original entry text and slice there: text before is the prompt, the phrase is excluded, text after is retained for the next buffer (FR-008).
-4. Prefix the transcript label (FR-009).
-5. If the result is empty, abort the submission and report (FR-016).
+2. Locate the wake phrase as a contiguous run of normalised tokens across the remaining entries. No normalised string is assembled; each token carries offsets into the entry text it came from.
+3. Slice the originals at those offsets: text before the run is the prompt, the run itself is excluded, text after it is retained for the next buffer (FR-008).
+4. Replace `entries` with the retained tail.
+5. Prefix the transcript label (FR-009) to the sliced text.
+6. If the sliced text is empty, report and stop without submitting (FR-016).
+7. Submit.
 
-Step 3 is the load-bearing one. The match is found in normalised text but the prompt is cut from the original, so what reaches the agent retains the capitalisation and punctuation the developer spoke (FR-023). Slicing the normalised form instead would be simpler by about fifteen lines and would send `servertsx` where the developer said `Server.tsx`. SC-011 measures this character for character.
+Step 3 is the load-bearing one. The phrase is located through normalised tokens but the prompt is cut from the original text, so what reaches the agent retains the capitalisation and punctuation the developer spoke (FR-023). Slicing a normalised form instead would send `servertsx` where the developer said `Server.tsx`. SC-011 measures this character for character.
 
-**The concurrency rule.** Steps 1 to 3 MUST occur under a guard that blocks appends, and the buffer MUST be replaced atomically with the retained tail. A segment transcribed while assembly is in progress must land in the _next_ buffer — not be silently dropped, and not be duplicated into both. This is the spec's _speech arrives while a submission is being assembled_ edge case, and it is the one place in this feature where a race produces silently wrong behaviour rather than an error.
+**Why the order is what it is.** Steps 1 to 4 mutate; steps 5 to 7 do not. Every mutation is complete before the first `await`, and appends only ever run in a continuation after an `await` of their own transcription request. So no append can interleave with assembly: by the time one could, `entries` already _is_ the retained tail and the text being submitted is a local value that no longer aliases it. A segment transcribed during the submission lands in the next buffer because that is the only buffer left to land in.
+
+An earlier draft put step 4 after the submit and required steps 1 to 3 to run under a guard that blocked appends, describing this as the one place in the feature where a race produces silently wrong behaviour. Ordering the mutation first removes the window rather than guarding it, so the guard, the lock and the race are all gone (research.md R-109). The spec's _speech arrives while a submission is being assembled_ edge case is satisfied by the ordering, and a test asserts it by appending from a continuation scheduled during the submit.
 
 **State transitions**
 
 ```text
-empty --append--> accumulating --wake phrase--> assembling --> empty (+ retained tail)
-                       |                            |
-                       +--age expiry--> accumulating (pruned)
-                       +--discard-----> empty
-                       +--stop--------> destroyed
-                                                    |
-                                        +-----------+ (append blocked during assembly)
+empty --append--> accumulating --wake phrase--> empty (+ retained tail)
+                       |
+                       +--age or size eviction--> accumulating (oldest entries dropped)
+                       +--discard---------------> empty
+                       +--stop------------------> destroyed
 ```
+
+There is no `assembling` state. Assembly does not span an `await`, so no other operation can observe the buffer part-way through one.
 
 ---
 
@@ -117,10 +129,10 @@ A configured spoken trigger.
 
 **Validation**
 
-- Matching operates on normalised text — case folded, punctuation stripped, whitespace collapsed (FR-003). Distortions beyond formatting are handled by `variants`, not by a second substitution pass.
-- The normalised form MUST be used only to locate the phrase. It MUST NOT be what gets submitted (FR-023).
-- Matching operates on the **whole buffer**, never a single segment (FR-004).
-- When phrases share a prefix, the longer MUST win (FR-005). The two configured phrases share one by design, differing by an inserted word. SC-003 requires zero misclassifications.
+- Matching operates on normalised tokens — each word case folded and stripped of punctuation, carrying its offsets in the original text (FR-003). Distortions beyond formatting are handled by `variants`, not by a second substitution pass.
+- Normalisation MUST exist only to locate the phrase. No normalised text may reach the agent (FR-023). Because tokens are normalised individually and the original is never joined into a normalised string, there is no normalised form of the buffer that could be submitted by mistake.
+- Matching operates on the **whole buffer**, never a single segment (FR-004). A token run may cross an entry boundary, which is how a phrase split by a pause still matches.
+- When phrases share a prefix, the longer MUST win (FR-005). Enforced by sorting the compiled set by token count descending, so it is a property of the data rather than a rule in the search. The two configured phrases share a prefix by design, differing by inserted words. SC-003 requires zero misclassifications.
 - Both phrases and their variants MUST be configurable (FR-022).
 
 **Why variants are explicit rather than fuzzy**
@@ -137,17 +149,19 @@ An earlier draft carried a configurable per-word substitution map alongside `var
 
 The period between the developer turning listening on and off.
 
-| Field     | Type            | Notes                                                            |
-| --------- | --------------- | ---------------------------------------------------------------- |
-| `active`  | boolean         | Never true at startup (FR-011)                                   |
-| `capture` | Capture \| null | Feature 001's capture object for the segment currently recording |
-| `buffer`  | Buffer          | Owned by the session                                             |
-| `abort`   | AbortSignal     | Derived from the host's disposal signal                          |
+| Field     | Type            | Notes                                                                     |
+| --------- | --------------- | ------------------------------------------------------------------------- |
+| `active`  | boolean         | Never true at startup (FR-011)                                            |
+| `capture` | Capture \| null | The current recorder. Replaced once per utterance, null between recorders |
+| `buffer`  | Buffer          | Owned by the session                                                      |
+| `abort`   | AbortSignal     | Derived from the host's disposal signal                                   |
+
+`capture` holds one recorder at a time and is replaced on each utterance rather than living for the whole session. It is also registered with `lib/capture.js` for the duration, so teardown does not depend on the session being asked politely.
 
 **Validation**
 
 - MUST NOT be active at startup. Beginning to listen requires an explicit act (FR-011).
-- MUST NOT start while held-key dictation is capturing, and MUST cause a held-key attempt to be refused while active (FR-017). `active` is the whole of the exclusion check.
+- MUST NOT start while held-key dictation is capturing, and MUST cause a held-key attempt to be refused while active (FR-017). `active` is what the refusal message reads to name the mode, but the check itself consults the shared capture registry, because two per-mode flags can disagree with each other and with the operating system while one shared record cannot.
 - Every transition MUST be signalled at the moment it occurs, and state MUST be reportable on demand (FR-012).
 
 There is no `suspended` field. An earlier draft had one, for a design in which held-key dictation suspended the session and resumed it afterwards, discarding the overlap. FR-017 now refuses the second mode instead, so the state does not exist to be represented. This removed a state, a discard rule, and the transitions in and out of both.
@@ -158,7 +172,9 @@ Explicitly started, explicitly stopped, or terminated by editor exit.
 
 **Disposal**
 
-On stop or exit — including abnormal exit — the recorder is terminated, temp audio removed, in-flight transcription requests aborted, and the buffer discarded (FR-020). Termination targets the tracked process handle only, never a command-line pattern match, because the held-key path runs the same binary. FR-017 makes the two modes exclusive, but the exclusion is enforced by this plugin rather than by the operating system, so a stale recorder left by a crashed session is precisely the case a pattern match would get wrong.
+On stop or exit — including abnormal exit — the recorder is terminated, temp audio removed, in-flight transcription requests aborted, and the buffer discarded (FR-020). Termination targets tracked process handles only, never a command-line pattern match, because the held-key path runs the same binary. FR-017 makes the two modes exclusive, but the exclusion is enforced by this plugin rather than by the operating system, so a stale recorder left by a crashed session is precisely the case a pattern match would get wrong.
+
+Exit teardown reaches this session's recorder because the recorder is in the shared registry, not because the exit hook knows the session exists. This is the whole point of Phase A0: as feature 001 stands, the exit hook drains a single module variable inside `lib/stt.js`, which a session-owned recorder would never appear in — leaving a live recorder and a file of the developer's voice behind on exactly the abnormal path FR-020 names.
 
 **State transitions**
 
@@ -178,18 +194,20 @@ Two states, and the refusals are edges that return to where they started. This i
 
 ```text
 Listening session
-  ├─owns──> recorder process ──emits──> Segment
-  │                                        │
-  │                                   transcribed
-  │                                        v
-  └─owns──> Buffer <──append── Buffer entry
+  ├─starts, one per utterance──> recorder process ──exits──> Segment
+  │                                    ^                        │
+  │                              registered in              transcribed
+  │                              lib/capture.js                 v
+  └─owns──> Buffer <────────────append──────────────── Buffer entry
                 │
-           wake phrase match
+           wake phrase match (token run)
                 v
             prompt ──> agent (labelled as transcript, auto-submitted)
 ```
 
-Reused from feature 001: Credential (per-request resolution), Service configuration (transcription endpoint and tier). This feature adds no correction-service dependency at all — FR-010 removes it.
+The recorder is not a long-lived child of the session. The session starts one, waits for it to exit, hands the file off to transcription, and starts the next — so the arrow from recorder to segment is the process exiting, not a message it sends.
+
+Reused from feature 001: Credential (per-request resolution), Service configuration (transcription endpoint and tier), Capture (per-capture path, tracked handle, bounded termination). This feature adds no correction-service dependency at all — FR-010 removes it.
 
 ---
 
@@ -202,3 +220,9 @@ Reused from feature 001: Credential (per-request resolution), Service configurat
 **Indicator state.** There is no indicator, so there is no state for one. FR-012 is satisfied by announcing transitions as they occur and by a command that reads `session.active` and the buffer at the moment it is asked. Nothing is stored, which means nothing can disagree with the recorder - and the failure mode that would matter, a display reading "off" while the microphone is live, is unreachable rather than merely unlikely.
 
 **Suspension.** Covered above: FR-017 refuses rather than coordinates, so there is no suspended session, no overlap window, and no queue of discarded audio.
+
+**Normalised buffer text.** There is no normalised representation of the buffer, joined or otherwise. Normalisation happens per token and produces offsets, not text. An earlier draft joined the entries, normalised the join, matched in that string and then mapped the offsets back — work that existed only to recover the alignment the join had just discarded. Because no normalised string exists, FR-023 cannot be violated by submitting one, and SC-011 is measuring something unreachable rather than something forbidden.
+
+**Assembly guard.** No lock, mutex or append queue. Replaced by the ordering rule above.
+
+**Segment completion state.** Nothing tracks whether a segment has finished recording. The recorder's exit is that fact, delivered by the kernel. An earlier draft used one long-lived recorder writing numbered files, which required a directory watcher, a sequence parser, a rule for inferring that file _n_ was complete because file _n+1_ had appeared, and a size test to tell a real segment from the empty placeholder the recorder opens at each cut. Measurement showed both designs cut the audio in the same places, so all four mechanisms were paying for nothing (research.md R-101).
