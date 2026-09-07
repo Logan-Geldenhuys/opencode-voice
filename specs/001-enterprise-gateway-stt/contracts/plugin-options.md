@@ -40,8 +40,18 @@ When no transcription endpoint resolves, the plugin falls back to upstream's on-
 | `endpoint`     | string | `sttApiEndpoint` | Base URL of the correction service. Requests go to `${base}/chat/completions` |
 | `model`        | string | `gpt-4.1`        | Correction model (research.md R-004)                                          |
 | `maxTokens`    | number | `400`            | Ceiling on correction output                                                  |
-| `temperature`  | number | `0.2`            | Low, because correction is not a creative task                                |
+| `temperature`  | number | `0.2`            | Low, because correction is not a creative task. See the note below            |
 | `llmTimeoutMs` | number | `15000`          | Bound on a correction request (FR-018)                                        |
+
+**On `temperature` being 0.2 rather than 0.** R-004 held temperature at 0.2 while
+comparing models, so 0.2 is a benchmark condition in that study and not a result
+of it. Measured separately, 8 runs per setting across two hard transcripts, 0 and
+0.2 are indistinguishable: identical trap-term accuracy, latency within noise,
+and identical non-determinism — each produced two distinct outputs in 8 runs,
+because batched inference on a shared gateway is not reproducible at any
+temperature. `0` is therefore not preferable, and defaulting to it would imply a
+reproducibility guarantee the service does not offer. The variation observed was
+paraphrase, not invention, which is the failure mode SC-003 is written against.
 
 **Each of `endpoint` and `sttApiEndpoint` defaults to the other**, so supplying either one alone yields a working configuration — FR-008. Supplying both, with different values, is supported and is the case where transcription and correction live on separate services. Supplying neither is a validation error naming both options.
 
