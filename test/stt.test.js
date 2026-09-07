@@ -8,10 +8,13 @@ import { spawn } from "node:child_process";
 import {
   buildAudioHint,
   buildCapturePath,
+  buildMultipartTranscriptionRequest,
   buildOpenRouterTranscriptionRequest,
   buildRecordArgs,
+  buildVocabularyPrompt,
   buildWhisperArgs,
   createCapture,
+  groupTranscriptionTiers,
   isOpenRouterEndpoint,
   isWSL,
   parsePactlSources,
@@ -283,4 +286,123 @@ test("collects the recorder's stderr for diagnostics", async () => {
     assert.equal(info.code, 1);
     assert.match(capture.stderr, /cannot open device/);
   });
+});
+
+// ---- Vocabulary biasing (T027) ----
+
+test("builds a comma-separated bias prompt, trimmed and deduplicated", () => {
+  assert.equal(
+    buildVocabularyPrompt(["opencode", "oxlint", "oxfmt", "WSL", "PulseAudio"]),
+    "opencode, oxlint, oxfmt, WSL, PulseAudio",
+  );
+  assert.equal(buildVocabularyPrompt(["  sox  ", "sox", "SOX", ""]), "sox");
+  assert.equal(buildVocabularyPrompt(["kept", 7, null, undefined, "  "]), "kept");
+});
+
+test("yields an empty prompt when there is nothing to bias, so the field is omitted", () => {
+  assert.equal(buildVocabularyPrompt([]), "");
+  assert.equal(buildVocabularyPrompt(undefined), "");
+  assert.equal(buildVocabularyPrompt("not an array"), "");
+  assert.equal(buildVocabularyPrompt(["", "   "]), "");
+});
+
+test("carries the vocabulary as the transcription request's prompt parameter", () => {
+  const audio = Buffer.from("fake wav bytes");
+
+  const biased = buildMultipartTranscriptionRequest("gpt-transcribe", audio, "tok", "sox, WSL");
+  assert.equal(biased.body.get("prompt"), "sox, WSL");
+  assert.equal(biased.body.get("model"), "gpt-transcribe");
+  assert.equal(biased.body.get("response_format"), "json");
+  assert.equal(biased.headers["Authorization"], "Bearer tok");
+
+  // Absent rather than blank: an empty prompt is not a prompt.
+  const plain = buildMultipartTranscriptionRequest("gpt-transcribe", audio, "tok", "");
+  assert.equal(plain.body.get("prompt"), null);
+  assert.equal(buildMultipartTranscriptionRequest("m", audio, "tok").body.get("prompt"), null);
+});
+
+test("sends no Authorization header when no credential resolved", () => {
+  const request = buildMultipartTranscriptionRequest("m", Buffer.from("x"), null, "term");
+  assert.equal("Authorization" in request.headers, false);
+  assert.equal(request.body.get("prompt"), "term");
+});
+
+// ---- Transcription tier grouping (T036, T037) ----
+//
+// The catalogue is large and mostly irrelevant, so these tests pin the two
+// properties that make the selector usable: the measured tiers come first in
+// the order they were measured in, and nothing the service offers is dropped.
+
+test("groups the measured tiers ahead of everything else, fastest first", () => {
+  const tiers = groupTranscriptionTiers([
+    "gpt-4o-mini-transcribe",
+    "acme-ft:gpt-4o:custom",
+    "whisper-1",
+    "gpt-4.1",
+    "gpt-transcribe",
+    "gpt-4o-transcribe",
+  ]);
+
+  const measured = tiers.filter((t) => t.category === "Measured").map((t) => t.value);
+  assert.deepEqual(measured, [
+    "gpt-transcribe",
+    "gpt-4o-transcribe",
+    "whisper-1",
+    "gpt-4o-mini-transcribe",
+  ]);
+
+  // Measured tiers occupy the head of the list, so the host renders them first.
+  assert.deepEqual(
+    tiers.slice(0, 4).map((t) => t.value),
+    measured,
+  );
+});
+
+test("keeps every advertised model, in service order, in the remainder group", () => {
+  const tiers = groupTranscriptionTiers([
+    "acme-ft:gpt-4o:one",
+    "gpt-transcribe",
+    "acme-ft:gpt-4o:two",
+    "gpt-4.1",
+  ]);
+
+  assert.equal(tiers.length, 4);
+  assert.deepEqual(
+    tiers.filter((t) => t.category === "Remainder").map((t) => t.value),
+    ["acme-ft:gpt-4o:one", "acme-ft:gpt-4o:two", "gpt-4.1"],
+  );
+});
+
+test("admits transcription tiers that the old whisper filter excluded", () => {
+  // The previous implementation filtered on /whisper/i, which admitted only
+  // whisper-1 -- the one measured tier that failed to convert a spoken path.
+  const tiers = groupTranscriptionTiers(["gpt-transcribe", "gpt-4o-transcribe", "whisper-1"]);
+  const values = tiers.map((t) => t.value);
+  assert.ok(values.includes("gpt-transcribe"));
+  assert.ok(values.includes("gpt-4o-transcribe"));
+  assert.equal(values.indexOf("gpt-transcribe") < values.indexOf("whisper-1"), true);
+});
+
+test("drops blanks and duplicates without reordering the survivors", () => {
+  const tiers = groupTranscriptionTiers([
+    "  gpt-transcribe  ",
+    "gpt-transcribe",
+    "",
+    "   ",
+    null,
+    42,
+    "gpt-4.1",
+    "gpt-4.1",
+  ]);
+  assert.deepEqual(
+    tiers.map((t) => t.value),
+    ["gpt-transcribe", "gpt-4.1"],
+  );
+});
+
+test("returns nothing for a catalogue that is not a list", () => {
+  assert.deepEqual(groupTranscriptionTiers(undefined), []);
+  assert.deepEqual(groupTranscriptionTiers(null), []);
+  assert.deepEqual(groupTranscriptionTiers("gpt-transcribe"), []);
+  assert.deepEqual(groupTranscriptionTiers([]), []);
 });

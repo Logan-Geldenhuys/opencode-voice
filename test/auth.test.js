@@ -286,9 +286,30 @@ test("describeRejection reads differently from a resolution failure", () => {
   assert.ok(!rejected.includes("No credential found"));
   assert.match(rejected, /403/);
   assert.match(rejected, /gpt-4\.1/);
-  assert.match(rejected, /not a configuration fault/);
-  assert.match(rejected, /entitled/);
+  assert.match(rejected, /entitlement problem/);
   assert.notEqual(rejected, unresolved);
+});
+
+// The corrective actions differ: one is re-authentication, the other is a tier
+// the account cannot use. Collapsing them sends the developer to the wrong
+// place (contracts/commands.md, T033).
+test("describeRejection separates a refused credential from a refused tier", () => {
+  const label = "~/.local/share/opencode/auth.json";
+  const unauthorized = describeRejection(401, label, "gpt-transcribe");
+  const forbidden = describeRejection(403, label, "gpt-transcribe");
+
+  assert.match(unauthorized, /re-authenticate/);
+  assert.ok(!unauthorized.includes("entitlement"));
+
+  assert.match(forbidden, /entitlement problem/);
+  assert.match(forbidden, /different transcription tier/);
+  assert.ok(!forbidden.includes("re-authenticate"));
+
+  // Both name the resolved source, so neither can be mistaken for a
+  // configuration failure.
+  assert.ok(unauthorized.includes(label));
+  assert.ok(forbidden.includes(label));
+  assert.notEqual(unauthorized, forbidden);
 });
 
 test("describeRejection names the missing credential when none was sent", () => {

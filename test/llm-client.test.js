@@ -68,6 +68,7 @@ test("sends chat completions requests with reasoning_effort when configured", as
     assert.deepEqual(JSON.parse(requests[0].options.body), {
       model: "gpt-test",
       max_tokens: 321,
+      temperature: 0.2,
       reasoning_effort: "low",
       messages: [
         { role: "system", content: "System prompt" },
@@ -412,6 +413,65 @@ test("the credential never reaches logged output", async () => {
     for (const line of logged) {
       assert.doesNotMatch(line, /sk-should-never-be-logged/);
     }
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+// ---- Temperature (T026) ----
+
+test("sends the configured temperature, and 0 rather than omitting it", async () => {
+  const previousFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return createJsonResponse(200, { choices: [{ message: { content: "text" } }] });
+  };
+
+  try {
+    const base = { endpoint: "https://example.test/v1", model: "test-model", retries: 0 };
+
+    // Default is the 0.2 measured in research.md R-004.
+    await createClient(base).complete({ prompt: "Test" });
+    assert.equal(JSON.parse(requests[0].options.body).temperature, 0.2);
+
+    // An explicit value is honoured.
+    await createClient({ ...base, temperature: 1.4 }).complete({ prompt: "Test" });
+    assert.equal(JSON.parse(requests[1].options.body).temperature, 1.4);
+
+    // Zero is a legitimate temperature and must survive a truthiness check.
+    await createClient({ ...base, temperature: 0 }).complete({ prompt: "Test" });
+    assert.equal(JSON.parse(requests[2].options.body).temperature, 0);
+
+    // Out of range falls back to the default rather than sending a rejected value.
+    await createClient({ ...base, temperature: 7 }).complete({ prompt: "Test" });
+    assert.equal(JSON.parse(requests[3].options.body).temperature, 0.2);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("omits temperature entirely when set to null, for services that reject it", async () => {
+  const previousFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return createJsonResponse(200, { choices: [{ message: { content: "text" } }] });
+  };
+
+  try {
+    const client = createClient({
+      endpoint: "https://example.test/v1",
+      model: "test-model",
+      temperature: null,
+      retries: 0,
+    });
+
+    await client.complete({ prompt: "Test" });
+    const body = JSON.parse(requests[0].options.body);
+    assert.equal("temperature" in body, false);
   } finally {
     globalThis.fetch = previousFetch;
   }

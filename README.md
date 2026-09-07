@@ -268,16 +268,29 @@ For unauthenticated local endpoints (e.g. Ollama):
 }
 ```
 
-- `endpoint` _(required)_ - OpenAI-compatible base URL
-- `model` _(required)_ - model name sent to `/chat/completions`
-- `apiKeyEnv` _(optional)_ - environment variable containing the API key
-- `maxTokens` _(optional)_ - maximum completion tokens for normalization calls
+- `endpoint` _(required unless `sttApiEndpoint` is set)_ - OpenAI-compatible base URL. Defaults to `sttApiEndpoint` when omitted, so a single gateway serving both services only needs one of the two
+- `model` _(optional)_ - model name sent to `/chat/completions` (default: `gpt-4.1`)
+- `apiKeyEnv` _(optional)_ - environment variable holding the API key. See [Credentials](#credentials)
+- `maxTokens` _(optional)_ - maximum completion tokens for normalization calls (default: `400`)
+- `temperature` _(optional)_ - sampling temperature for normalization calls, `0` to `2` (default: `0.2`). Set to `null` to omit the parameter entirely for services that reject it
+- `llmTimeoutMs` _(optional)_ - bound on a single normalization request (default: `15000`). A timeout is not retried
 - `reasoningEffort` _(optional)_ - reasoning level for models that support it
 - `chatTemplateKwargs` _(optional)_ - extra keyword arguments passed to the model's chat template (e.g. `{"enable_thinking": false}` for Qwen models to disable chain-of-thought)
 - `retries` _(optional)_ - number of retry attempts for transient LLM failures
-- `tmpDir` _(optional)_ - directory used for the temporary STT recording file (default `/tmp`)
 - `sttLanguage` _(optional)_ - spoken language passed to local `whisper-cli -l` (default `auto`; any whisper.cpp language code, e.g. `en`, `zh`). Can be changed at runtime via `/stt-language`
 - `trimSilence` _(optional)_ - whether to remove leading silence from recordings (default `true`). Set to `false` if your recordings are missing the first word or syllable
+
+Any string option may use OpenCode's `{env:NAME}` form, which the editor
+substitutes before the plugin sees it:
+
+```json
+{ "sttApiEndpoint": "{env:MY_GATEWAY_URL}" }
+```
+
+Recordings are written to a per-session directory created under the system
+temporary directory with owner-only permissions. There is no option for it:
+each recording is deleted as soon as it has been transcribed, whether that
+succeeded or failed, and the directory is removed when the editor exits.
 
 ### Logging
 
@@ -298,20 +311,77 @@ plugin on a machine without whisper-cpp installed.
     [
       "@renjfk/opencode-voice",
       {
-        "sttEndpoint": "http://127.0.0.1:8000/v1",
-        "sttModel": "whisper-large-v3-turbo",
-        "sttApiKeyEnv": "MY_STT_API_KEY"
+        "sttApiEndpoint": "http://127.0.0.1:8000/v1",
+        "sttApiModel": "gpt-transcribe",
+        "sttVocabulary": ["opencode", "kubectl", "oxlint"],
+        "apiKeyEnv": "MY_STT_API_KEY"
       }
     ]
   ]
 }
 ```
 
-- `sttEndpoint` _(optional)_ - OpenAI-compatible base URL with `/audio/transcriptions` support
-- `sttModel` _(optional)_ - whisper model name to pass to the API (default: `whisper-large-v3-turbo`). Can be changed at runtime via `/stt-model`, which fetches available whisper models from the endpoint's `/models` listing
-- `sttApiKeyEnv` _(optional)_ - environment variable containing the API key
+- `sttApiEndpoint` _(optional)_ - OpenAI-compatible base URL with `/audio/transcriptions` support. Defaults to `endpoint` when omitted
+- `sttApiModel` _(optional)_ - transcription tier to pass to the API (default: `gpt-transcribe`). Can be changed at runtime via `/stt-model`, which lists what the endpoint's `/models` listing advertises. Tiers that have been measured for both latency and accuracy are grouped first, fastest first; everything else the service offers follows in a second group
+- `sttVocabulary` _(optional)_ - array of terms to bias transcription toward, e.g. project names, tool names, or identifiers the service otherwise mishears (default: none). Passed as the transcription request's `prompt` parameter
+- `sttTimeoutMs` _(optional)_ - bound on a single transcription request (default: `15000`)
+- `apiKeyEnv` _(optional)_ - environment variable holding the API key. See [Credentials](#credentials)
 
-OpenRouter note: when `sttEndpoint` points at `https://openrouter.ai/api/v1`, the plugin automatically uses OpenRouter's JSON/base64 transcription request format instead of multipart upload.
+Earlier releases named these `sttEndpoint`, `sttModel` and `sttApiKeyEnv`. The
+first two were renamed so the `sttApi*` prefix marks the options that belong to
+the transcription service; the third was folded into `apiKeyEnv`, since one
+gateway serving both services needs one credential.
+
+OpenRouter note: when `sttApiEndpoint` points at `https://openrouter.ai/api/v1`, the plugin automatically uses OpenRouter's JSON/base64 transcription request format instead of multipart upload. Vocabulary biasing does not apply on that path, which takes a different request shape.
+
+### Credentials
+
+The plugin reads a credential for every request rather than caching one at
+startup, so a token that is renewed mid-session is picked up without restarting
+the editor. Two sources are tried in order:
+
+1. `credentialStorePath` - a JSON file, read at `credentialStoreKeyPath`.
+   Defaults to `~/.local/share/opencode/auth.json` at `["anthropic", "key"]`,
+   which is where OpenCode writes the token it renews when you log in.
+2. `apiKeyEnv` - the name of an environment variable holding the token.
+
+The store is tried first because it is the copy the editor keeps current; an
+environment variable exported once at shell startup can be days stale.
+
+```json
+{
+  "plugin": [
+    [
+      "@renjfk/opencode-voice",
+      {
+        "sttApiEndpoint": "{env:MY_GATEWAY_URL}",
+        "credentialStorePath": "~/.local/share/opencode/auth.json",
+        "credentialStoreKeyPath": ["anthropic", "key"]
+      }
+    ]
+  ]
+}
+```
+
+- `credentialStorePath` _(optional)_ - JSON file holding the token; `~` is expanded
+- `credentialStoreKeyPath` _(optional)_ - array of keys locating the token inside that file
+- `apiKeyEnv` _(optional)_ - fallback environment variable name
+
+Neither source is required. An endpoint that needs no credential, such as a
+local Ollama or vLLM server, works with both left unset.
+
+When no source yields a token, the plugin reports each source it tried and why
+it failed, rather than a generic authentication error:
+
+```
+No credential found.
+  ~/.local/share/opencode/auth.json — file not found
+  $ANTHROPIC_API_KEY — not set
+Log in to opencode, or set apiKeyEnv to a variable that holds a token.
+```
+
+A credential that resolves but is refused by the service reads differently, and
+distinguishes a token to renew (401) from a model the account may not use (403).
 
 ### Custom prompts
 
@@ -380,7 +450,7 @@ then `s`.
 1. `sox` records audio from your microphone (CoreAudio on macOS, PulseAudio on
    Linux when `pactl` is available, sox default device otherwise)
 2. `whisper-cli` transcribes locally using a ggml model, or an OpenAI-compatible
-   API endpoint if `sttEndpoint` is configured
+   API endpoint if `sttApiEndpoint` is configured
 3. LLM normalizes the transcription: fixes punctuation, removes filler words,
    corrects software engineering homophones ("Jason" to "JSON", "bullion" to
    "boolean", etc.)

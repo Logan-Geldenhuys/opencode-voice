@@ -91,10 +91,10 @@ Foundational is therefore larger than the template's example, and the per-story 
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] Add `temperature` support to the request body in `lib/llm-client.js`, which currently sends none, so the correction call can run at the 0.2 measured in research.md R-004
-- [ ] T027 [US1] Add vocabulary biasing to `transcribeApi()` in `lib/stt.js` by populating the transcription request's `prompt` parameter, confirmed working on `gpt-transcribe` in research.md R-001
-- [ ] T028 [US1] Guard the empty-capture path in `lib/stt.js` so a capture with no speech neither sends a request nor inserts empty text, and tells the user nothing was captured
-- [ ] T029 [P] [US1] Verify by source inspection that `appendTranscription()` in `lib/stt.js` near line 540 appends to existing prompt text rather than replacing it (FR-003), and that the `stt.record` command does not submit while `stt.submit` remains a separate opt-in command (FR-002). Record the result; if either check fails the fix belongs to the phase owning that code
+- [x] T026 [US1] Add `temperature` support to the request body in `lib/llm-client.js`, which currently sends none, so the correction call can run at the 0.2 measured in research.md R-004
+- [x] T027 [US1] Add vocabulary biasing to `transcribeApi()` in `lib/stt.js` by populating the transcription request's `prompt` parameter, confirmed working on `gpt-transcribe` in research.md R-001
+- [x] T028 [US1] Guard the empty-capture path in `lib/stt.js` so a capture with no speech neither sends a request nor inserts empty text, and tells the user nothing was captured
+- [x] T029 [P] [US1] Verify by source inspection that `appendTranscription()` in `lib/stt.js` near line 540 appends to existing prompt text rather than replacing it (FR-003), and that the `stt.record` command does not submit while `stt.submit` remains a separate opt-in command (FR-002). Record the result; if either check fails the fix belongs to the phase owning that code
 
 ### Verification for User Story 1
 
@@ -113,12 +113,12 @@ Foundational is therefore larger than the template's example, and the per-story 
 
 ### Implementation for User Story 2
 
-- [ ] T032 [US2] Render the attempt log in the user-facing error in `lib/stt.js` and `lib/llm-client.js` as one line per source tried with the reason each failed, matching the worked example in `specs/001-enterprise-gateway-stt/contracts/commands.md`, and never including the value
-- [ ] T033 [US2] Distinguish an expired credential rejected by the service from a credential that could not be resolved, in the error surfaced from both `lib/stt.js` and `lib/llm-client.js`, because the corrective actions differ
+- [x] T032 [US2] Render the attempt log in the user-facing error in `lib/stt.js` and `lib/llm-client.js` as one line per source tried with the reason each failed, matching the worked example in `specs/001-enterprise-gateway-stt/contracts/commands.md`, and never including the value
+- [x] T033 [US2] Distinguish an expired credential rejected by the service from a credential that could not be resolved, in the error surfaced from both `lib/stt.js` and `lib/llm-client.js`, because the corrective actions differ
 
 ### Verification for User Story 2
 
-- [ ] T034 [P] [US2] Confirm SC-004 by searching the repository for any path that could emit credential material: `rg -n 'apiKey|token|Authorization|Bearer' index.js lib` reviewed against FR-007, plus a check that no temporary file written by the plugin contains the value
+- [x] T034 [P] [US2] Confirm SC-004 by searching the repository for any path that could emit credential material: `rg -n 'apiKey|token|Authorization|Bearer' index.js lib` reviewed against FR-007, plus a check that no temporary file written by the plugin contains the value
 - [ ] T035 [US2] Walk acceptance scenarios 1 to 3 of User Story 2 using the User Story 2 checks in `specs/001-enterprise-gateway-stt/quickstart.md`, including renewing the credential mid-session without restarting the editor
 
 **Checkpoint**: User Stories 1 and 2 both work independently. Dictation now survives credential renewal.
@@ -133,9 +133,9 @@ Foundational is therefore larger than the template's example, and the per-story 
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Remove the hardcoded `/whisper/i` catalogue filter from `getApiModels()` in `lib/stt.js` near line 450, which currently conceals every tier including the fastest and leaves only the one tier measured to mangle file paths
-- [ ] T037 [US3] Group the tier selector options in `lib/stt.js` into a Measured group listing the four tiers observed to work fastest-first and a Remainder group holding everything else in service order, using the `category` field on the host dialog's options so the host's own type-to-filter does the narrowing, per research.md R-006
-- [ ] T038 [P] [US3] Verify by source inspection that microphone selection through `listInputDevices()` in `lib/stt.js` persists across editor restarts via `api.kv` (FR-012), and that the existing WSL audio diagnostics name the cause and the corrective action for each failure mode (FR-013)
+- [x] T036 [US3] Remove the hardcoded `/whisper/i` catalogue filter from `getApiModels()` in `lib/stt.js` near line 450, which currently conceals every tier including the fastest and leaves only the one tier measured to mangle file paths
+- [x] T037 [US3] Group the tier selector options in `lib/stt.js` into a Measured group listing the four tiers observed to work fastest-first and a Remainder group holding everything else in service order, using the `category` field on the host dialog's options so the host's own type-to-filter does the narrowing, per research.md R-006
+- [x] T038 [P] [US3] Verify by source inspection that microphone selection through `listInputDevices()` in `lib/stt.js` persists across editor restarts via `api.kv` (FR-012), and that the existing WSL audio diagnostics name the cause and the corrective action for each failure mode (FR-013)
 
 ### Verification for User Story 3
 
@@ -150,11 +150,11 @@ Foundational is therefore larger than the template's example, and the per-story 
 
 **Purpose**: Verification that spans stories, and the measurements the success criteria require
 
-- [ ] T041 Confirm `npm run check` clean and `npm run test` passing at repository root, with the new `test/auth.test.js` included
+- [x] T041 Confirm `npm run check` clean and `npm run test` passing at repository root, with the new `test/auth.test.js` included
 - [ ] T042 [P] Confirm SC-006 and the lifecycle guarantees using the lifecycle checks in `specs/001-enterprise-gateway-stt/quickstart.md`: no audio remains after a session, the capture file and its directory are both owner-only while they exist, and killing the editor mid-capture leaves no `sox` process
 - [ ] T043 [P] Measure SC-001 by timing ten six-second utterances from key release to text appearing, and confirm 3s at p50 and 5s at p95 against the 2.4s p50 component budget in plan.md
 - [ ] T044 [P] Confirm SC-008 by inducing a stalled request and verifying a timeout is surfaced as a distinct error rather than an indefinite wait
-- [ ] T045 Update `README.md` to document the renamed `sttApiEndpoint` and `sttApiModel` options, the `{env:NAME}` configuration form, and the credential store options, since the upstream README documents the old names
+- [x] T045 Update `README.md` to document the renamed `sttApiEndpoint` and `sttApiModel` options, the `{env:NAME}` configuration form, and the credential store options, since the upstream README documents the old names
 - [ ] T046 Walk `specs/001-enterprise-gateway-stt/quickstart.md` end to end on a clean editor start and confirm every check passes
 
 ---
