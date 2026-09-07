@@ -10,8 +10,14 @@
 //   STT: brew install whisper-cpp sox
 //   TTS: Piper binary on PATH, voice models at ~/.local/share/piper-voices/
 //
-// Configuration via tui.json plugin options:
-//   ["opencode-voice", { "endpoint": "...", "model": "...", "apiKeyEnv": "..." }]
+// Configuration via tui.jsonc plugin options. The host substitutes
+// {env:NAME} into option values before the plugin is handed them, so the
+// gateway location never appears in tracked configuration:
+//   ["/path/to/opencode-voice", { "sttApiEndpoint": "{env:MY_GATEWAY}" }]
+//
+// `endpoint` and `sttApiEndpoint` each default to the other, so a working
+// configuration names the gateway once. See
+// specs/001-enterprise-gateway-stt/contracts/plugin-options.md.
 //
 // Runtime state (model, mic, voice, tts mode) persisted via api.kv.
 //
@@ -29,10 +35,202 @@
 
 import fs from "node:fs";
 import os from "node:os";
-import { registerSTT } from "./lib/stt.js";
+import {
+  disposeCapturesSync,
+  registerSTT,
+  removeCaptureDir,
+  stopActiveCapture,
+} from "./lib/stt.js";
 import { registerTTS } from "./lib/tts.js";
 import { createClient } from "./lib/llm-client.js";
+import { createCredentialResolver } from "./lib/auth.js";
 import { createLogger } from "./lib/logger.js";
+
+// Defaults from the plugin options contract. Transcription and correction
+// models are the tiers research.md measured as both fastest and accurate
+// (R-001, R-004); the timeouts bound a single request (FR-018).
+const OPTION_DEFAULTS = {
+  sttApiModel: "gpt-transcribe",
+  sttVocabulary: [],
+  sttTimeoutMs: 15000,
+  model: "gpt-4.1",
+  maxTokens: 400,
+  temperature: 0.2,
+  llmTimeoutMs: 15000,
+  credentialStorePath: "~/.local/share/opencode/auth.json",
+  credentialStoreKeyPath: ["anthropic", "key"],
+  trimSilence: true,
+};
+
+// The host resolves {env:NAME} references in option values before the plugin
+// sees them (research.md R-008). When NAME is unset the reference either
+// survives verbatim or collapses to an empty string; the first case lets us
+// name the variable, which is the whole point of the contract's rule that an
+// unset variable must not be reported as a malformed URL.
+const ENV_PLACEHOLDER = /^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/;
+
+function isSupplied(value) {
+  return value !== undefined && value !== null;
+}
+
+function isAbsoluteUrl(value) {
+  try {
+    const url = new URL(value);
+    return Boolean(url.protocol && url.host);
+  } catch {
+    return false;
+  }
+}
+
+// Returns an error message when `value` cannot serve as a URL, else null.
+// Ordered so the environment-variable diagnosis wins over the URL one.
+function urlProblem(option, value) {
+  if (typeof value !== "string") {
+    return `${option}: expected a URL string, received ${typeof value}`;
+  }
+  const trimmed = value.trim();
+  const placeholder = ENV_PLACEHOLDER.exec(trimmed);
+  if (placeholder) {
+    return `${option}: environment variable ${placeholder[1]} is not set, so the host left the reference unresolved`;
+  }
+  if (!trimmed) {
+    return `${option}: value is empty. An unset {env:NAME} reference substitutes an empty string, so check the environment variable named for this option in the host configuration`;
+  }
+  if (!isAbsoluteUrl(trimmed)) {
+    return `${option}: "${trimmed}" is not an absolute URL. Supply a scheme and host, for example https://gateway.example/v1`;
+  }
+  return null;
+}
+
+// FR-008: each endpoint defaults to the other, so naming the gateway once is
+// a working configuration. A supplied-but-unusable value is reported rather
+// than silently replaced by its counterpart.
+function resolveEndpoints(opts, errors) {
+  const usable = {};
+  for (const option of ["endpoint", "sttApiEndpoint"]) {
+    if (!isSupplied(opts[option])) continue;
+    const problem = urlProblem(option, opts[option]);
+    if (problem) errors.push(problem);
+    else usable[option] = opts[option].trim();
+  }
+  if (!isSupplied(opts.endpoint) && !isSupplied(opts.sttApiEndpoint)) {
+    errors.push(
+      "endpoint and sttApiEndpoint: neither is set. Set either one to the base URL of an OpenAI-compatible gateway; the other defaults to it",
+    );
+  }
+  return {
+    endpoint: usable.endpoint ?? usable.sttApiEndpoint ?? null,
+    sttApiEndpoint: usable.sttApiEndpoint ?? usable.endpoint ?? null,
+  };
+}
+
+function resolvePositiveInteger(option, value, fallback, errors) {
+  if (!isSupplied(value)) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    errors.push(`${option}: expected a positive whole number, received ${JSON.stringify(value)}`);
+    return fallback;
+  }
+  return value;
+}
+
+function resolveTemperature(value, errors) {
+  if (!isSupplied(value)) return OPTION_DEFAULTS.temperature;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 2) {
+    errors.push(`temperature: expected a number from 0 to 2, received ${JSON.stringify(value)}`);
+    return OPTION_DEFAULTS.temperature;
+  }
+  return value;
+}
+
+function resolveStringArray(option, value, fallback, errors) {
+  if (!isSupplied(value)) return fallback;
+  if (!Array.isArray(value) || value.length === 0) {
+    errors.push(`${option}: expected a non-empty array of strings`);
+    return fallback;
+  }
+  if (!value.every((entry) => typeof entry === "string" && entry.trim())) {
+    errors.push(`${option}: every entry must be a non-empty string`);
+    return fallback;
+  }
+  return value;
+}
+
+function resolveString(option, value, fallback, errors) {
+  if (!isSupplied(value)) return fallback;
+  if (typeof value !== "string" || !value.trim()) {
+    errors.push(`${option}: expected a non-empty string`);
+    return fallback;
+  }
+  return value;
+}
+
+// Validated once at initialisation. Every message names the option that is
+// wrong; nothing here throws, because a stack trace out of plugin init is
+// less useful than a running plugin that reports what it cannot do.
+function resolveOptions(rawOptions) {
+  const opts = rawOptions ?? {};
+  const errors = [];
+  const resolved = {
+    ...resolveEndpoints(opts, errors),
+    sttApiModel: resolveString(
+      "sttApiModel",
+      opts.sttApiModel,
+      OPTION_DEFAULTS.sttApiModel,
+      errors,
+    ),
+    sttVocabulary: isSupplied(opts.sttVocabulary)
+      ? resolveStringArray("sttVocabulary", opts.sttVocabulary, [], errors)
+      : OPTION_DEFAULTS.sttVocabulary,
+    sttTimeoutMs: resolvePositiveInteger(
+      "sttTimeoutMs",
+      opts.sttTimeoutMs,
+      OPTION_DEFAULTS.sttTimeoutMs,
+      errors,
+    ),
+    model: resolveString("model", opts.model, OPTION_DEFAULTS.model, errors),
+    maxTokens: resolvePositiveInteger(
+      "maxTokens",
+      opts.maxTokens,
+      OPTION_DEFAULTS.maxTokens,
+      errors,
+    ),
+    temperature: resolveTemperature(opts.temperature, errors),
+    llmTimeoutMs: resolvePositiveInteger(
+      "llmTimeoutMs",
+      opts.llmTimeoutMs,
+      OPTION_DEFAULTS.llmTimeoutMs,
+      errors,
+    ),
+    credentialStorePath: resolveString(
+      "credentialStorePath",
+      opts.credentialStorePath,
+      OPTION_DEFAULTS.credentialStorePath,
+      errors,
+    ),
+    credentialStoreKeyPath: resolveStringArray(
+      "credentialStoreKeyPath",
+      opts.credentialStoreKeyPath,
+      OPTION_DEFAULTS.credentialStoreKeyPath,
+      errors,
+    ),
+    trimSilence: isSupplied(opts.trimSilence)
+      ? Boolean(opts.trimSilence)
+      : OPTION_DEFAULTS.trimSilence,
+  };
+  // Unrecognised and upstream-only options pass through untouched.
+  return { config: { ...opts, ...resolved }, errors };
+}
+
+function reportOptionErrors(errors, api, logger) {
+  for (const message of errors) {
+    logger?.log("plugin", `Configuration problem — ${message}`, "error");
+    try {
+      api?.ui?.toast?.({ message, variant: "error", duration: 8000 });
+    } catch {
+      // A failed toast must not prevent the rest of initialisation.
+    }
+  }
+}
 
 function loadPromptFile(filePath, logger, name) {
   if (!filePath) return null;
@@ -57,17 +255,78 @@ export default {
     const { kv } = api;
     const logger = createLogger(api.client);
     logger.log("plugin", "Initializing", "debug");
-    const { complete } = createClient(options, logger);
+
+    const { config, errors } = resolveOptions(options);
+    reportOptionErrors(errors, api, logger);
+
+    // One resolver, shared by the correction and transcription paths, so the
+    // credential is read from a single configured source. It holds no token:
+    // every request calls resolve() again (FR-005, research.md R-003).
+    const credentials = createCredentialResolver({
+      storePath: config.credentialStorePath,
+      storeKeyPath: config.credentialStoreKeyPath,
+      envVar: config.apiKeyEnv,
+    });
+    logger.log("plugin", `Credential sources — ${credentials.describe()}`, "debug");
+
+    const { complete } = createClient(config, logger, credentials);
 
     const prompts = {
-      stt: loadPromptFile(options?.sttPrompt, logger, "STT"),
-      ttsAuto: loadPromptFile(options?.ttsAutoPrompt, logger, "TTS auto"),
-      ttsManual: loadPromptFile(options?.ttsManualPrompt, logger, "TTS manual"),
+      stt: loadPromptFile(config.sttPrompt, logger, "STT"),
+      ttsAuto: loadPromptFile(config.ttsAutoPrompt, logger, "TTS auto"),
+      ttsManual: loadPromptFile(config.ttsManualPrompt, logger, "TTS manual"),
     };
 
-    const sttCommands = registerSTT(api, kv, complete, prompts, options, logger);
+    const sttCommands = registerSTT(api, kv, complete, prompts, config, logger, credentials);
     const ttsCommands = registerTTS(api, kv, complete, prompts, logger);
 
     api.command.register(() => [...sttCommands, ...ttsCommands]);
+
+    // Capture cleanup on the way out: no recorder and no recording of the
+    // user's voice may survive the editor (FR-018).
+    //
+    // Two registrations, because they cover different exits. The editor's own
+    // dispose hook can await a graceful stop. The process "exit" hook cannot
+    // await anything, so it kills and unlinks synchronously, and it still runs
+    // when the editor tears the plugin down without calling dispose, and on an
+    // uncaught exception.
+    //
+    const disposeCaptures = async () => {
+      await stopActiveCapture(logger);
+      removeCaptureDir(logger);
+    };
+    if (typeof api.lifecycle?.onDispose === "function") {
+      api.lifecycle.onDispose(disposeCaptures);
+    } else {
+      logger.log(
+        "PLUGIN",
+        "Host exposes no lifecycle.onDispose; capture cleanup rests on the process exit hook",
+        "debug",
+      );
+    }
+    process.once("exit", disposeCapturesSync);
+
+    // A terminated signal is not covered by the hook above. Node's default
+    // disposition for SIGTERM, SIGINT and SIGHUP ends the process without
+    // running "exit" handlers, and a SIGTERM to the editor was measured to
+    // leave both the capture directory and an orphaned recorder behind.
+    //
+    // Adding a signal listener suppresses that default disposition, so each
+    // handler restores it by re-raising the signal on itself after cleaning
+    // up, which preserves the exit code the host would otherwise have had. If
+    // another listener is already installed, the host has taken charge of its
+    // own shutdown and this one only cleans up, leaving the decision alone.
+    //
+    // SIGKILL cannot be handled by anyone and is therefore not covered here.
+    for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+      const onSignal = () => {
+        disposeCapturesSync();
+        if (process.listenerCount(signal) === 1) {
+          process.removeListener(signal, onSignal);
+          process.kill(process.pid, signal);
+        }
+      };
+      process.on(signal, onSignal);
+    }
   },
 };

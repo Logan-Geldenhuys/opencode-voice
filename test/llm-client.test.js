@@ -264,3 +264,155 @@ test("retries transient failures and eventually returns the response text", asyn
     }
   }
 });
+
+// ---- Credential resolution (T013) ----
+
+// Minimal stand-in for lib/auth.js's resolver. Counts calls so a test can
+// assert resolution happens per request rather than once per client.
+function createStubResolver(tokens, { configured = true } = {}) {
+  const queue = [...tokens];
+  const stub = {
+    calls: 0,
+    resolve() {
+      stub.calls += 1;
+      const value = queue.length > 1 ? queue.shift() : queue[0];
+      if (value === null) {
+        return {
+          ok: false,
+          attempts: [
+            {
+              source: "store",
+              label: "/tmp/absent.json",
+              outcome: "failed",
+              detail: "file not found",
+            },
+            { source: "env", label: "$STUB_KEY", outcome: "failed", detail: "not set" },
+          ],
+        };
+      }
+      return {
+        ok: true,
+        value,
+        source: "store",
+        attempts: [{ source: "store", label: "/tmp/auth.json", outcome: "ok", detail: "" }],
+      };
+    },
+    isConfigured() {
+      return configured;
+    },
+  };
+  return stub;
+}
+
+test("resolves the credential on every request, so a renewal is picked up mid-session", async () => {
+  const previousFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (_url, options) => {
+    sent.push(options.headers["Authorization"]);
+    return createJsonResponse(200, { choices: [{ message: { content: "ok" } }] });
+  };
+
+  const resolver = createStubResolver(["token-before-renewal", "token-after-renewal"]);
+
+  try {
+    const client = createClient(
+      { endpoint: "https://example.test/v1", model: "gpt-test", retries: 0 },
+      null,
+      resolver,
+    );
+
+    await client.complete({ prompt: "First" });
+    await client.complete({ prompt: "Second" });
+
+    assert.equal(resolver.calls, 2, "resolve() must be called once per request");
+    assert.deepEqual(sent, ["Bearer token-before-renewal", "Bearer token-after-renewal"]);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("reports an unresolved credential without issuing a request", async () => {
+  const previousFetch = globalThis.fetch;
+  let requested = false;
+  globalThis.fetch = async () => {
+    requested = true;
+    return createJsonResponse(200, { choices: [{ message: { content: "ok" } }] });
+  };
+
+  try {
+    const client = createClient(
+      { endpoint: "https://example.test/v1", model: "gpt-test", retries: 0 },
+      null,
+      createStubResolver([null]),
+    );
+
+    const result = await client.complete({ prompt: "Test" });
+
+    assert.equal(result.text, null);
+    assert.match(result.error, /^No credential found\./);
+    assert.match(result.error, /\/tmp\/absent\.json — file not found/);
+    assert.match(result.error, /\$STUB_KEY — not set/);
+    assert.equal(requested, false, "no request may be sent without a credential");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("a rejected credential reads differently from an unresolved one", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    createJsonResponse(403, { error: { message: "model not entitled" } });
+
+  try {
+    const client = createClient(
+      { endpoint: "https://example.test/v1", model: "gpt-test", retries: 0 },
+      null,
+      createStubResolver(["valid-token"]),
+    );
+
+    const result = await client.complete({ prompt: "Test" });
+
+    assert.equal(result.text, null);
+    assert.doesNotMatch(result.error, /No credential found/);
+    assert.match(result.error, /403/);
+    assert.match(result.error, /gpt-test/);
+    assert.match(result.error, /\/tmp\/auth\.json/);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("the credential never reaches logged output", async () => {
+  const previousFetch = globalThis.fetch;
+  const token = "sk-should-never-be-logged";
+  const logged = [];
+  const logger = {
+    log: (...args) => logged.push(args.map((arg) => String(arg)).join(" ")),
+  };
+
+  try {
+    globalThis.fetch = async () =>
+      createJsonResponse(200, { choices: [{ message: { content: "ok" } }] });
+    const client = createClient(
+      { endpoint: "https://example.test/v1", model: "gpt-test", retries: 0 },
+      logger,
+      createStubResolver([token]),
+    );
+    await client.complete({ prompt: "Succeeds" });
+
+    globalThis.fetch = async () => createJsonResponse(401, {});
+    await client.complete({ prompt: "Rejected" });
+
+    globalThis.fetch = async () => {
+      throw new Error("network down");
+    };
+    await client.complete({ prompt: "Throws" });
+
+    assert.ok(logged.length > 0, "the client must log something to make this meaningful");
+    for (const line of logged) {
+      assert.doesNotMatch(line, /sk-should-never-be-logged/);
+    }
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});

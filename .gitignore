@@ -1,2 +1,6 @@
 node_modules/
 *.tgz
+
+# Never commit credential material or logs that may contain it (FR-007, SC-004).
+.env*
+*.log

@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
 
 import {
   buildAudioHint,
+  buildCapturePath,
   buildOpenRouterTranscriptionRequest,
   buildRecordArgs,
   buildWhisperArgs,
+  createCapture,
   isOpenRouterEndpoint,
   isWSL,
   parsePactlSources,
@@ -131,4 +137,150 @@ test("builds whisper-cli args with language", () => {
     "-np",
     "-nt",
   ]);
+});
+
+// ---- Capture object: path allocation and termination (T025) ----
+//
+// The capture object is exercised against ordinary long-lived child processes
+// rather than sox, so the lifecycle guarantees in FR-014 through FR-018 are
+// testable on a machine with no microphone.
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function withTempDir(run) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stt-test-"));
+  try {
+    return run(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Spawns a child that outlives the assertions unless something kills it, and
+// guarantees it is reaped even when an assertion throws.
+async function withChild(argv, run, { stdio = ["ignore", "ignore", "pipe"] } = {}) {
+  const child = spawn(argv[0], argv.slice(1), { stdio });
+  await new Promise((resolve) => child.once("spawn", resolve));
+  try {
+    return await run(child);
+  } finally {
+    try {
+      child.kill("SIGKILL");
+    } catch {}
+  }
+}
+
+test("allocates a distinct audio path per capture inside the capture directory", () => {
+  const first = buildCapturePath("/tmp/opencode-voice-abc", 1);
+  const second = buildCapturePath("/tmp/opencode-voice-abc", 2);
+
+  assert.notEqual(first, second);
+  assert.equal(path.dirname(first), "/tmp/opencode-voice-abc");
+  assert.equal(path.dirname(second), "/tmp/opencode-voice-abc");
+  assert.equal(path.extname(first), ".wav");
+  assert.equal(path.basename(first), "capture-001.wav");
+  assert.equal(path.basename(second), "capture-002.wav");
+});
+
+test("sorts capture files in creation order up to a thousand captures", () => {
+  const dir = "/tmp/d";
+  const names = [1, 2, 10, 100].map((n) => path.basename(buildCapturePath(dir, n)));
+  assert.deepEqual([...names].sort(), names);
+});
+
+test("stop() ends the recorder and reports how it exited", async () => {
+  await withChild(["sleep", "30"], async (child) => {
+    const capture = createCapture({ process: child, path: "/tmp/unused.wav" });
+    assert.equal(capture.running, true);
+    assert.equal(capture.state, "recording");
+
+    const info = await capture.stop();
+
+    assert.notEqual(info, null);
+    assert.equal(capture.running, false);
+    assert.equal(capture.state, "stopping");
+    assert.equal(isAlive(child.pid), false);
+  });
+});
+
+test("terminate() escalates to SIGKILL for a recorder that ignores SIGTERM", async () => {
+  await withChild(["sh", "-c", 'trap "" TERM; exec sleep 30'], async (child) => {
+    const capture = createCapture({ process: child, path: "/tmp/unused.wav" });
+
+    const info = await capture.terminate();
+
+    assert.notEqual(info, null, "the child must not survive terminate()");
+    assert.equal(info.signal, "SIGKILL", "SIGTERM was ignored, so SIGKILL is what ended it");
+    assert.equal(capture.state, "terminated");
+    assert.equal(isAlive(child.pid), false);
+  });
+});
+
+test("terminate() leaves an unrelated process whose command line mentions sox alive", async () => {
+  // The predecessor ran `pkill -9 -f 'sox.*opencode-stt'`, which kills by
+  // command-line pattern and so kills any process the same user happens to be
+  // running that matches. This decoy's own argv matches that pattern (FR-016).
+  //
+  // The decoy inherits no pipes: killing the shell orphans its `sleep`, and an
+  // orphan holding a pipe open would stall the test runner until it expired.
+  await withChild(
+    ["sh", "-c", "sleep 30", "sox-opencode-stt-decoy"],
+    async (decoy) => {
+      await withChild(["sleep", "30"], async (child) => {
+        const capture = createCapture({ process: child, path: "/tmp/unused.wav" });
+
+        await capture.terminate();
+
+        assert.equal(isAlive(child.pid), false, "the tracked recorder must be gone");
+        assert.equal(isAlive(decoy.pid), true, "an unrelated process must be untouched");
+      });
+    },
+    { stdio: "ignore" },
+  );
+});
+
+test("terminate() is idempotent once the recorder has already exited", async () => {
+  await withChild(["sh", "-c", "exit 0"], async (child) => {
+    const capture = createCapture({ process: child, path: "/tmp/unused.wav" });
+    await capture.exited;
+
+    const info = await capture.terminate();
+
+    assert.equal(info.code, 0);
+    assert.equal(capture.running, false);
+  });
+});
+
+test("removeAudio() deletes the capture file and tolerates it already being gone", async () => {
+  await withTempDir(async (dir) => {
+    const audioPath = buildCapturePath(dir, 1);
+    fs.writeFileSync(audioPath, "not really audio", { mode: 0o600 });
+
+    await withChild(["sh", "-c", "exit 0"], async (child) => {
+      const capture = createCapture({ process: child, path: audioPath });
+      await capture.exited;
+
+      capture.removeAudio();
+      assert.equal(fs.existsSync(audioPath), false);
+
+      capture.removeAudio();
+    });
+  });
+});
+
+test("collects the recorder's stderr for diagnostics", async () => {
+  await withChild(["sh", "-c", "echo 'sox: cannot open device' >&2; exit 1"], async (child) => {
+    const capture = createCapture({ process: child, path: "/tmp/unused.wav" });
+    const info = await capture.exited;
+
+    assert.equal(info.code, 1);
+    assert.match(capture.stderr, /cannot open device/);
+  });
 });
