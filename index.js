@@ -41,6 +41,8 @@ import { registerSTT } from "./lib/stt.js";
 // reachable by the same hooks as one created by dictation (FR-020).
 import { disposeCapturesSync, removeCaptureDir, stopActiveCapture } from "./lib/capture.js";
 import { registerTTS } from "./lib/tts.js";
+import { registerListen } from "./lib/listen.js";
+import { compilePhrases, DEFAULT_WAKE_PHRASES } from "./lib/wake.js";
 import { createClient } from "./lib/llm-client.js";
 import { createCredentialResolver } from "./lib/auth.js";
 import { createLogger } from "./lib/logger.js";
@@ -59,6 +61,28 @@ const OPTION_DEFAULTS = {
   credentialStorePath: "~/.local/share/opencode/auth.json",
   credentialStoreKeyPath: ["anthropic", "key"],
   trimSilence: true,
+};
+
+// Continuous listening. Defaults from
+// specs/002-continuous-wake-phrase/contracts/listen-options.md.
+//
+// The two bounds are sized to coincide: 64,000 characters is about an hour of
+// speech at a fast conversational rate, so the size bound is what fires when
+// the developer has been talking and the age bound is the backstop for a
+// session left running through a long silence. Neither is a staleness policy;
+// inspecting or discarding the buffer is (FR-013).
+const LISTEN_DEFAULTS = {
+  listenSilenceDurationMs: 700,
+  listenSilenceThreshold: "2%",
+  listenMinSegmentMs: 400,
+  listenMaxSegmentMs: 30000,
+  listenMaxBufferAgeMs: 3600000,
+  listenMaxBufferChars: 64000,
+  listenAutoSubmit: true,
+  listenTranscriptLabel:
+    "The following is a voice transcript and may contain speech recognition errors, " +
+    "particularly in code identifiers, file paths and technical terms. Treat unfamiliar " +
+    "identifiers with suspicion and verify them against the project before acting on them.",
 };
 
 // The host resolves {env:NAME} references in option values before the plugin
@@ -163,6 +187,68 @@ function resolveString(option, value, fallback, errors) {
   return value;
 }
 
+// Continuous-listening options. Every numeric bound is validated; the silence
+// threshold deliberately is not. The recorder accepts percentages and decibel
+// values with its own grammar, and reimplementing that grammar here would only
+// be wrong in a different way than the recorder is — a rejected threshold
+// surfaces as the recorder's own error, which names the value.
+function resolveListenOptions(opts, errors) {
+  const resolved = {};
+  for (const option of [
+    "listenSilenceDurationMs",
+    "listenMinSegmentMs",
+    "listenMaxSegmentMs",
+    "listenMaxBufferAgeMs",
+    "listenMaxBufferChars",
+  ]) {
+    resolved[option] = resolvePositiveInteger(
+      option,
+      opts[option],
+      LISTEN_DEFAULTS[option],
+      errors,
+    );
+  }
+  if (resolved.listenMinSegmentMs >= resolved.listenMaxSegmentMs) {
+    errors.push(
+      `listenMinSegmentMs (${resolved.listenMinSegmentMs}) must be less than listenMaxSegmentMs (${resolved.listenMaxSegmentMs}); as configured, every segment would be discarded as too short`,
+    );
+    resolved.listenMinSegmentMs = LISTEN_DEFAULTS.listenMinSegmentMs;
+    resolved.listenMaxSegmentMs = LISTEN_DEFAULTS.listenMaxSegmentMs;
+  }
+
+  resolved.listenSilenceThreshold = resolveString(
+    "listenSilenceThreshold",
+    opts.listenSilenceThreshold,
+    LISTEN_DEFAULTS.listenSilenceThreshold,
+    errors,
+  );
+  resolved.listenTranscriptLabel = resolveString(
+    "listenTranscriptLabel",
+    opts.listenTranscriptLabel,
+    LISTEN_DEFAULTS.listenTranscriptLabel,
+    errors,
+  );
+  resolved.listenAutoSubmit = isSupplied(opts.listenAutoSubmit)
+    ? Boolean(opts.listenAutoSubmit)
+    : LISTEN_DEFAULTS.listenAutoSubmit;
+
+  // Phrases are compiled here rather than at first use so a malformed phrase
+  // set is reported at startup, when the developer can still read the message,
+  // rather than at the moment they first try to talk to the agent.
+  const phrases = isSupplied(opts.listenWakePhrases)
+    ? opts.listenWakePhrases
+    : DEFAULT_WAKE_PHRASES;
+  try {
+    resolved.listenWakePhrases = phrases;
+    resolved.compiledWakePhrases = compilePhrases(phrases);
+  } catch (err) {
+    errors.push(`listenWakePhrases: ${err.message}`);
+    resolved.listenWakePhrases = DEFAULT_WAKE_PHRASES;
+    resolved.compiledWakePhrases = compilePhrases(DEFAULT_WAKE_PHRASES);
+  }
+  return resolved;
+}
+
 // Validated once at initialisation. Every message names the option that is
 // wrong; nothing here throws, because a stack trace out of plugin init is
 // less useful than a running plugin that reports what it cannot do.
@@ -215,6 +301,7 @@ function resolveOptions(rawOptions) {
     trimSilence: isSupplied(opts.trimSilence)
       ? Boolean(opts.trimSilence)
       : OPTION_DEFAULTS.trimSilence,
+    ...resolveListenOptions(opts, errors),
   };
   // Unrecognised and upstream-only options pass through untouched.
   return { config: { ...opts, ...resolved }, errors };
@@ -278,8 +365,9 @@ export default {
 
     const sttCommands = registerSTT(api, kv, complete, prompts, config, logger, credentials);
     const ttsCommands = registerTTS(api, kv, complete, prompts, logger);
+    const listen = registerListen(api, kv, config, logger);
 
-    api.command.register(() => [...sttCommands, ...ttsCommands]);
+    api.command.register(() => [...sttCommands, ...ttsCommands, ...listen.commands]);
 
     // Capture cleanup on the way out: no recorder and no recording of the
     // user's voice may survive the editor (FR-018).
@@ -290,7 +378,11 @@ export default {
     // when the editor tears the plugin down without calling dispose, and on an
     // uncaught exception.
     //
+    // The listening session is stopped before the drain rather than left to
+    // it. Killing its recorder is not enough: the session's loop would see the
+    // exit as an ordinary segment boundary and spawn the next recorder.
     const disposeCaptures = async () => {
+      await listen.dispose();
       await stopActiveCapture(logger);
       removeCaptureDir(logger);
     };
