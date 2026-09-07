@@ -420,6 +420,11 @@ It needs `sttApiEndpoint`; the segments are short and frequent, and local
             "variants": ["open code stop and execute", "opencode stop execute"],
             "action": "interrupt_submit",
           },
+          {
+            "canonical": "hey nome",
+            "variants": ["hey gnome", "hey nom", "hey no me"],
+            "action": "submit",
+          },
         ],
       },
     ],
@@ -449,6 +454,27 @@ Wake phrases and submission:
 - `listenWakePhrases` _(optional)_ - array of `{canonical, variants, action}`, where `action` is `"submit"` or `"interrupt_submit"`. A phrase must be at least two words, and two phrases may not compile to the same words with different actions. When two phrases share a prefix, the longer one wins
 - `listenTranscriptLabel` _(optional)_ - text prefixed to every submission, warning the agent that what follows is a voice transcript
 - `listenAutoSubmit` _(optional)_ - whether the wake phrase submits the prompt or just fills it (default: `true`). With `false`, the buffer still advances and the interrupt phrase still stops the agent; only the final send is left to you. Useful for the first session
+
+#### Choosing a phrase
+
+Length is the whole of the safety margin. `opencode execute` is four syllables
+of a word that almost never occurs in speech; `hey nome` is shorter to say and
+correspondingly closer to ordinary English, and its homophones are closer still.
+Both defaults are provided because the tradeoff is yours to make.
+
+Be careful adding homophones to a two-word phrase. Two obvious ones for "nome"
+are deliberately absent from its variants, because both occur in unremarkable
+speech about code:
+
+```
+"so I said hey name the function fetchUser and it worked"  -> would submit "so I said"
+"can you rename this hey known issue"                      -> would submit "can you rename this"
+```
+
+A false negative costs you saying the phrase again. A false positive sends
+truncated speech to an agent holding file-modifying tools, and with
+`listenAutoSubmit` on it does so immediately. If calibration turns up a form
+that is also ordinary speech, lengthen the phrase rather than accept the form.
 
 There is no LLM correction pass on continuously captured speech. Correcting each
 submission would add latency to every one of them, and a correction model that
@@ -526,11 +552,11 @@ outside the list can be set via the `sttLanguage` plugin option.
 
 ### Continuous listening
 
-| Command           | Description                                          |
-| ----------------- | ---------------------------------------------------- |
-| `/listen-toggle`  | Start or stop continuous listening                   |
-| `/listen-status`  | Report whether it is listening, and what is buffered |
-| `/listen-discard` | Throw away the buffer and keep listening             |
+| Command           | Keybind       | Description                                          |
+| ----------------- | ------------- | ---------------------------------------------------- |
+| `/listen-toggle`  | `alt+shift+r` | Start or stop continuous listening                   |
+| `/listen-status`  |               | Report whether it is listening, and what is buffered |
+| `/listen-discard` |               | Throw away the buffer and keep listening             |
 
 Listening is never on at startup, and nothing about it is persisted - reopening
 the editor to a live microphone is the failure this avoids.

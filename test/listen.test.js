@@ -435,9 +435,16 @@ test("status is answerable before anything has been said", () => {
   assert.equal(status.entries, 0);
   assert.equal(status.oldestAgeMs, null);
   assert.equal(status.listeningForMs, null);
+  // One row per phrase, not one per accepted form: the defaults compile to more
+  // forms than phrases, and a status that recited every variant would be
+  // unreadable by the time calibration has finished adding to them.
   assert.deepEqual(
-    status.phrases.map((p) => p.action),
-    ["interrupt_submit", "submit"],
+    status.phrases.map((p) => p.phrase).sort(),
+    DEFAULT_WAKE_PHRASES.map((p) => p.canonical).sort(),
+  );
+  assert.ok(
+    compilePhrases(DEFAULT_WAKE_PHRASES).length > status.phrases.length,
+    "defaults must have more accepted forms than phrases for this to be a real check",
   );
 });
 

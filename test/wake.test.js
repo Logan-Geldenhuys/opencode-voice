@@ -285,3 +285,29 @@ test("the defaults compile", () => {
     assert.ok(ACTIONS.has(phrase.action));
   }
 });
+
+// "hey nome" is two tokens of ordinary English, and the homophones of "nome"
+// that were left out of its variants are ordinary English too. Both of these
+// occur in unremarkable speech about code, and accepting them would truncate
+// the prompt at a phrase the developer never said. The exclusion is a
+// deliberate choice recorded in lib/wake.js, so it is asserted rather than
+// left to whoever next edits the list.
+test("homophones that are ordinary speech are not accepted forms", () => {
+  const traps = [
+    "so I said hey name the function fetchUser and it worked",
+    "can you rename this hey known issue",
+    "hey names are hard",
+  ];
+  for (const trap of traps) {
+    assert.equal(findWake([trap], compiled), null, trap);
+  }
+});
+
+test("the short phrase and its kept variants do match", () => {
+  for (const form of ["hey nome", "Hey, Nome.", "hey gnome", "hey nom", "hey no me"]) {
+    const hit = findWake([`refactor the parser ${form}`], compiled);
+    assert.ok(hit, form);
+    assert.equal(hit.action, SUBMIT, form);
+    assert.equal(hit.before, "refactor the parser", form);
+  }
+});
