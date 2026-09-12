@@ -247,7 +247,7 @@ Doing the mutation first closes it without a mechanism:
 6. submit (and, for the interrupt phrase, abort first)
 ```
 
-By the time anything can be appended, the buffer already _is_ the retained tail, and the text being submitted is a value held in a local variable that no longer aliases it. The requirement is satisfied by choosing an order. There is nothing to lock, nothing to test for contention, and no window to reason about.
+By the time anything can be appended, the buffer is already empty, and the text being submitted is a value held in a local variable that no longer aliases it. The requirement is satisfied by choosing an order. There is nothing to lock, nothing to test for contention, and no window to reason about.
 
 **Alternatives considered**: A mutex or a boolean guard was the earlier draft's answer and is rejected as unnecessary given the above. Draining the transcription queue before assembling was rejected as strictly worse: it delays submission by up to a full request in order to add speech the developer had already finished saying when they spoke the wake phrase, which is the opposite of what FR-008 asks for.
 

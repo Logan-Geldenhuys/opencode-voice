@@ -525,7 +525,9 @@ test("the second submission does not repeat the first", async () => {
   assert.match(h.appended[1].body.text, /second thing/);
 });
 
-test("speech after the phrase in the same utterance belongs to the next submission", async () => {
+test("the phrase is excised and the rest of the utterance is sent with it", async () => {
+  // The phrase introduces an instruction as often as it follows one, so both
+  // sides of it are one prompt. Nothing is held back for a later submission.
   const h = harness({
     durations: [1000, 1000],
     transcripts: [{ text: "do the thing opencode execute and then this bit" }, { text: "x" }],
@@ -533,9 +535,19 @@ test("speech after the phrase in the same utterance belongs to the next submissi
   await h.listener.start();
   await until(() => h.appended.length >= 1);
   await settle();
-  assert.equal(h.appended[0].body.text.split("\n\n")[1], "do the thing");
-  // Read the buffer before stopping, because stopping discards it.
-  assert.match(h.listener.status().text, /and then this bit/);
+  assert.equal(h.appended[0].body.text.split("\n\n")[1], "do the thing and then this bit");
+  await h.listener.stop();
+});
+
+test("a phrase opening the utterance sends the instruction it introduces", async () => {
+  const h = harness({
+    durations: [1000, 1000],
+    transcripts: [{ text: "hey nome fix the failing test" }, { text: "x" }],
+  });
+  await h.listener.start();
+  await until(() => h.appended.length >= 1);
+  await settle();
+  assert.equal(h.appended[0].body.text.split("\n\n")[1], "fix the failing test");
   await h.listener.stop();
 });
 
@@ -570,15 +582,14 @@ test("no segment can be transcribed while a submission is being delivered", asyn
   const duringDelivery = h.requested.length;
   await settle();
   assert.equal(h.requested.length, duringDelivery, "the loop is not transcribing meanwhile");
-  assert.match(h.appended[0].body.text, /the original plan/);
-  assert.doesNotMatch(h.appended[0].body.text, /later words/, "the tail is not swept in");
+  assert.equal(h.appended[0].body.text.split("\n\n")[1], "the original plan and later words");
 
   release();
   await settle();
-  // The retained tail survived the submission exactly once, and the buffer
-  // carried on from it.
+  // Speech captured after the submission accumulates afresh; nothing from the
+  // submitted snippet is carried forward into it or duplicated inside it.
   const text = h.listener.status().text;
-  assert.equal((text.match(/and later words/g) ?? []).length, 1, "kept once, not lost or doubled");
+  assert.doesNotMatch(text, /the original plan|later words/, "the submitted snippet is gone");
   await h.listener.stop();
 });
 

@@ -46,19 +46,19 @@ Not commands. Triggered by speech, matched against the buffer.
 
 Satisfies FR-006, FR-008, FR-009, FR-016.
 
-| Step | Behaviour                                                                                                       |
-| ---- | --------------------------------------------------------------------------------------------------------------- |
-| 1    | Expired entries dropped (FR-014)                                                                                |
-| 2    | Phrase located as a contiguous run of normalised tokens across the remaining entries                            |
-| 3    | Entry texts sliced at the run's spans: text before is the prompt, phrase excluded, text after retained (FR-008) |
-| 4    | Buffer replaced by the retained tail                                                                            |
-| 5    | Transcript label prefixed to the sliced text (FR-009)                                                           |
-| 6    | Empty result → nothing submitted, developer told why (FR-016)                                                   |
-| 7    | Prompt submitted to the agent                                                                                   |
+| Step | Behaviour                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| 1    | Expired entries dropped (FR-014)                                                                              |
+| 2    | Phrase located as a contiguous run of normalised tokens across the remaining entries                          |
+| 3    | Entry texts sliced at the run's spans: the phrase is excised and the text on both sides of it joined (FR-008) |
+| 4    | Buffer emptied                                                                                                |
+| 5    | Transcript label prefixed to the sliced text (FR-009)                                                         |
+| 6    | Empty result → nothing submitted, developer told why (FR-016)                                                 |
+| 7    | Prompt submitted to the agent                                                                                 |
 
 Steps 2 and 3 are separate on purpose. The phrase is located through normalised tokens and the prompt is cut from the original text, so the agent receives the capitalisation and punctuation the developer spoke. Submitting a normalised form would turn `Server.tsx` into `servertsx`. SC-011 measures the difference character for character.
 
-Steps 1 to 4 all mutate, and they all complete before step 7 does anything asynchronous. That ordering is the whole of the concurrency story: a segment finishing transcription during the submit lands in a buffer that is already the retained tail, so it is neither lost nor duplicated. An earlier draft placed the buffer replacement last and required steps 1 to 3 to hold a lock against appends. Moving the replacement ahead of the first `await` removes the window instead of guarding it (research.md R-109).
+Steps 1 to 4 all mutate, and they all complete before step 7 does anything asynchronous. That ordering is the whole of the concurrency story: a segment finishing transcription during the submit lands in a buffer that has already been emptied, so it is neither lost nor duplicated. An earlier draft placed the buffer replacement last and required steps 1 to 3 to hold a lock against appends. Moving the replacement ahead of the first `await` removes the window instead of guarding it (research.md R-109).
 
 **Never aborts the agent**, regardless of whether it is working (research.md R-105). The developer chose the phrase without the interrupt word; reinterpreting it based on the agent's incidental state would make the two phrases indistinguishable in exactly the situation where the distinction matters.
 

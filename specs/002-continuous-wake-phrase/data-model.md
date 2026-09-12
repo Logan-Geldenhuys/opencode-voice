@@ -92,21 +92,21 @@ Created when listening starts. Cleared on every submission. Destroyed when liste
 1. Drop expired entries.
 2. Locate the wake phrase as a contiguous run of normalised tokens across the remaining entries. No normalised string is assembled; each token carries offsets into the entry text it came from.
 3. Slice the originals at those offsets: text before the run is the prompt, the run itself is excluded, text after it is retained for the next buffer (FR-008).
-4. Replace `entries` with the retained tail.
+4. Empty `entries`.
 5. Prefix the transcript label (FR-009) to the sliced text.
 6. If the sliced text is empty, report and stop without submitting (FR-016).
 7. Submit.
 
 Step 3 is the load-bearing one. The phrase is located through normalised tokens but the prompt is cut from the original text, so what reaches the agent retains the capitalisation and punctuation the developer spoke (FR-023). Slicing a normalised form instead would send `servertsx` where the developer said `Server.tsx`. SC-011 measures this character for character.
 
-**Why the order is what it is.** Steps 1 to 4 mutate; steps 5 to 7 do not. Every mutation is complete before the first `await`, and appends only ever run in a continuation after an `await` of their own transcription request. So no append can interleave with assembly: by the time one could, `entries` already _is_ the retained tail and the text being submitted is a local value that no longer aliases it. A segment transcribed during the submission lands in the next buffer because that is the only buffer left to land in.
+**Why the order is what it is.** Steps 1 to 4 mutate; steps 5 to 7 do not. Every mutation is complete before the first `await`, and appends only ever run in a continuation after an `await` of their own transcription request. So no append can interleave with assembly: by the time one could, `entries` is already empty and the text being submitted is a local value that no longer aliases it. A segment transcribed during the submission lands in the next buffer because that is the only buffer left to land in.
 
 An earlier draft put step 4 after the submit and required steps 1 to 3 to run under a guard that blocked appends, describing this as the one place in the feature where a race produces silently wrong behaviour. Ordering the mutation first removes the window rather than guarding it, so the guard, the lock and the race are all gone (research.md R-109). The spec's _speech arrives while a submission is being assembled_ edge case is satisfied by the ordering, and a test asserts it by appending from a continuation scheduled during the submit.
 
 **State transitions**
 
 ```text
-empty --append--> accumulating --wake phrase--> empty (+ retained tail)
+empty --append--> accumulating --wake phrase--> empty
                        |
                        +--age or size eviction--> accumulating (oldest entries dropped)
                        +--discard---------------> empty

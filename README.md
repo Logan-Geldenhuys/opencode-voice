@@ -395,6 +395,11 @@ a buffer until you speak a wake phrase. The phrase is what sends the buffer to
 the agent, so you can think aloud across as many pauses as you like and then
 commit in one breath.
 
+The phrase can fall anywhere in the sentence. "Hey nome, fix the failing test"
+and "fix the failing test, hey nome" both send `fix the failing test`: the
+phrase is cut out and everything else goes, so you never have to remember
+whether it goes first or last.
+
 It needs `sttApiEndpoint`; the segments are short and frequent, and local
 `whisper-cli` is not fast enough to keep up on CPU.
 
@@ -609,10 +614,11 @@ then `s`.
 4. After every append, the buffer is searched for a wake phrase. The search runs
    across the whole buffer rather than one utterance, so a phrase split by a
    pause still matches
-5. On a match, everything before the phrase is sent; the phrase itself is
-   dropped, and anything after it stays buffered for the next submission. What
-   is sent is the text exactly as transcribed - the plugin matches on a
-   normalised copy but never sends one, so `Server.tsx` arrives as `Server.tsx`
+5. On a match, the phrase is cut out of wherever it fell and everything else in
+   the buffer is sent as one prompt, including the rest of the sentence the
+   phrase was spoken in. The buffer is left empty. What is sent is the text
+   exactly as transcribed - the plugin matches on a normalised copy but never
+   sends one, so `Server.tsx` arrives as `Server.tsx`
 
 The plain phrase always submits and never stops the agent, whatever the agent
 happens to be doing; the interrupt phrase stops it first, and is not an error

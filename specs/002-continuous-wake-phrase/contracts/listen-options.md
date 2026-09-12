@@ -74,7 +74,7 @@ This label is the entire substitute for a correction pass (FR-010, research.md R
 
 `listenAutoSubmit` defaults to `true`, inverting feature 001's review-before-send default. That inversion is deliberate and is justified in the spec: the wake phrase _is_ the developer's confirming act. The option exists so the inversion can be undone during tuning, when a developer may want to see what a wake phrase would have submitted before trusting it to submit.
 
-When `false`, the assembled prompt is placed in the editor's prompt and left there, unsubmitted. Everything else is unchanged: the buffer is still replaced by the retained tail, and the interrupt phrase still aborts the agent before filling the prompt. Only the final submit is skipped. Spelling this out matters because the alternative readings are both wrong — leaving the buffer intact would make the next wake phrase resubmit everything, and skipping the abort would make the interrupt phrase silently stop being an interrupt.
+When `false`, the assembled prompt is placed in the editor's prompt and left there, unsubmitted. Everything else is unchanged: the buffer is still emptied, and the interrupt phrase still aborts the agent before filling the prompt. Only the final submit is skipped. Spelling this out matters because the alternative readings are both wrong — leaving the buffer intact would make the next wake phrase resubmit everything, and skipping the abort would make the interrupt phrase silently stop being an interrupt.
 
 ## State reporting
 
