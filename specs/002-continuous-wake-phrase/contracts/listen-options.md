@@ -6,12 +6,12 @@ Static configuration, added to the options established by feature 001's `contrac
 
 ## Segmentation
 
-| Option                    | Type   | Default | Meaning                                                         |
-| ------------------------- | ------ | ------- | --------------------------------------------------------------- |
-| `listenSilenceDurationMs` | number | `700`   | Pause length that ends a segment                                |
-| `listenSilenceThreshold`  | string | `"2%"`  | Amplitude below which audio counts as silence                   |
-| `listenMinSegmentMs`      | number | `400`   | Segments shorter than this are discarded untranscribed (FR-015) |
-| `listenMaxSegmentMs`      | number | `30000` | Hard cap. A segment is closed even without a pause              |
+| Option                    | Type   | Default  | Meaning                                                         |
+| ------------------------- | ------ | -------- | --------------------------------------------------------------- |
+| `listenSilenceDurationMs` | number | `700`    | Pause length that ends a segment                                |
+| `listenSilenceThreshold`  | string | `"0.5%"` | Amplitude below which audio counts as silence                   |
+| `listenMinSegmentMs`      | number | `400`    | Segments shorter than this are discarded untranscribed (FR-015) |
+| `listenMaxSegmentMs`      | number | `30000`  | Hard cap. A segment is closed even without a pause              |
 
 `listenSilenceDurationMs` and `listenSilenceThreshold` are the two values that need tuning per microphone and room, and no default will be right on an unseen machine (research.md R-101). FR-021's documented shell procedure exists to tune them.
 
@@ -51,9 +51,18 @@ Default:
   { "canonical": "opencode execute",          "action": "submit",
     "variants": ["open code execute"] },
   { "canonical": "opencode stop and execute", "action": "interrupt_submit",
-    "variants": ["open code stop and execute", "opencode stop execute"] }
+    "variants": ["open code stop and execute", "opencode stop execute"] },
+  { "canonical": "hey nome execute",          "action": "submit",
+    "variants": ["hey node execute", "hey norm execute", "hey nom execute",
+                 "hey gnome execute", "hey no me execute"] },
+  { "canonical": "hey nome stop and execute", "action": "interrupt_submit",
+    "variants": ["hey node stop and execute", "hey norm stop and execute",
+                 "hey nom stop and execute", "hey gnome stop and execute",
+                 "hey no me stop and execute"] }
 ]
 ```
+
+The second pair carries a name the recogniser does not render stably: measurement on a single speaker and microphone produced `node`, `norm`, `nom`, `gnome` and `no me` for the same spoken word, and vocabulary biasing shifted none of them. The phrase is therefore three tokens rather than two, so that the unstable token sits between two reliable ones. Measured against eighteen plausible utterances mentioning those words, the two-token form fired on five of them while still missing one real rendering; the three-token form fired on none and missed nothing. Length is what buys that, and it is why the rule in wake-phrase.md is to lengthen the phrase rather than accept a form.
 
 Validated at compile time against `contracts/wake-phrase.md`: no empty phrases, no single-token phrases, no two actions compiling to the same token sequence. A single-token phrase is rejected outright rather than warned about — it will fire during ordinary speech, and the failure is an unintended submission to an agent with file-modifying tools.
 
@@ -68,11 +77,11 @@ The `variants` lists above are starting points, not measurements. Establishing w
 
 Default label:
 
-> The following is a voice transcript and may contain speech recognition errors, particularly in code identifiers, file paths and technical terms. Treat unfamiliar identifiers with suspicion and verify them against the project before acting on them. The developer speaks to you as Nome. A phrase addressing you by name is how they mark a direct instruction; the surrounding speech is them thinking aloud, and is context rather than a request. Act on the instruction, and use the rest to inform how. Speech recognition frequently renders "Nome" as "node", so "hey node" is almost always this phrase rather than a reference to Node.js; read it as the developer addressing you and do not remark on the error.
+> The following is a voice transcript and may contain speech recognition errors, particularly in code identifiers, file paths and technical terms. Treat unfamiliar identifiers with suspicion and verify them against the project before acting on them. The developer speaks to you as Nome. A phrase addressing you by name is how they mark a direct instruction; the surrounding speech is them thinking aloud, and is context rather than a request. Act on the instruction, and use the rest to inform how. Speech recognition renders "Nome" inconsistently, most often as "node" or "norm". A phrase of the form "hey <something> execute" is this address mis-transcribed rather than a reference to Node.js or to a colleague; read it as the developer speaking to you and do not remark on the error.
 
 This label does two jobs. It is the entire substitute for a correction pass (FR-010, research.md R-103), and it is what makes the retained wake phrase legible (FR-008, FR-009): the phrase is left in the transcript because it marks the direct instruction, which only helps if the recipient knows that is what it is. It is configurable because its effectiveness depends on the agent model reading it.
 
-The label calls out one accepted form by name. `hey node` is what the recogniser returns for `hey nome` for at least one speaker, consistently and despite vocabulary biasing, so it is an accepted variant (wake-phrase.md). It is also the only accepted form that is a sentence a developer could mean literally, which leaves an agent no way to tell an address from a topic; every other accepted form is nonsense in context and needs no explanation. Naming it here is cheaper than lengthening the phrase.
+The label calls out the unstable token by name. The name in `hey nome execute` arrives as `node` or `norm` more often than as itself, and both of those are words a developer could mean literally, so an agent reading one has no way to tell a mangled address from a topic. The tokens bracketing it transcribe reliably and need no explanation. Explaining the distortion is what makes retaining the phrase under FR-008 useful rather than merely harmless.
 
 Otherwise the label names the agent but deliberately does not list the configured phrases. The phrases are already present in the transcript, and they are configuration — a prose list of them would eventually disagree with `listenWakePhrases`, and the failure would be silent.
 

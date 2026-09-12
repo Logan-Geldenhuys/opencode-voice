@@ -546,12 +546,12 @@ test("the whole utterance is sent with the phrase in place", async () => {
 test("a phrase opening the utterance marks the instruction it introduces", async () => {
   const h = harness({
     durations: [1000, 1000],
-    transcripts: [{ text: "hey nome fix the failing test" }, { text: "x" }],
+    transcripts: [{ text: "hey nome execute fix the failing test" }, { text: "x" }],
   });
   await h.listener.start();
   await until(() => h.appended.length >= 1);
   await settle();
-  assert.equal(h.appended[0].body.text.split("\n\n")[1], "hey nome fix the failing test");
+  assert.equal(h.appended[0].body.text.split("\n\n")[1], "hey nome execute fix the failing test");
   await h.listener.stop();
 });
 

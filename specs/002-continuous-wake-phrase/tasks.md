@@ -40,8 +40,8 @@ Attempting to distribute this across the stories would create false independence
 
 - [x] T001 Record the baseline at repository root: `npm run check` clean and `npm run test` at 58 passing, so any later regression is distinguishable from a pre-existing failure
 - [x] T002 Confirm the capture prerequisite: `sox --version` reports 14.4.2 and `sox --help` lists the `silence` effect, which is what divides audio at pauses per research.md R-101
-- [ ] T003 Tune pause sensitivity per step 1 of `specs/002-continuous-wake-phrase/quickstart.md` using `sox -d seg.wav silence 1 0.1 2% 1 0.7 2% : newfile : restart` and `soxi -D seg*.wav`, and record the working values for `listenSilenceDurationMs` and `listenSilenceThreshold` (FR-021)
-- [ ] T004 Add the listen options block to the host's `~/.config/opencode/tui.jsonc` per step 2 of `specs/002-continuous-wake-phrase/quickstart.md`, using the values from T003 and leaving `listenAutoSubmit` at `false` until T031 has calibrated the phrases
+- [x] T003 Tune pause sensitivity per step 1 of `specs/002-continuous-wake-phrase/quickstart.md` using `sox -d seg.wav silence 1 0.1 2% 1 0.7 2% : newfile : restart` and `soxi -D seg*.wav`, and record the working values for `listenSilenceDurationMs` and `listenSilenceThreshold` (FR-021)
+- [x] T004 Add the listen options block to the host's `~/.config/opencode/tui.jsonc` per step 2 of `specs/002-continuous-wake-phrase/quickstart.md`, using the values from T003 and leaving `listenAutoSubmit` at `false` until T031 has calibrated the phrases
 
 **Checkpoint**: Baseline recorded, capture tooling confirmed, pause thresholds measured on this microphone rather than assumed
 

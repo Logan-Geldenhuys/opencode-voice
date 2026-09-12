@@ -395,15 +395,15 @@ a buffer until you speak a wake phrase. The phrase is what sends the buffer to
 the agent, so you can think aloud across as many pauses as you like and then
 commit in one breath.
 
-The phrase can fall anywhere in the sentence. "Hey nome, fix the failing test"
-and "fix the failing test, hey nome" both send the whole thing, so you never
-have to remember whether it goes first or last.
+The phrase can fall anywhere in the sentence. "Hey nome execute, fix the
+failing test" and "fix the failing test, hey nome execute" both send the whole
+thing, so you never have to remember whether it goes first or last.
 
 The phrase stays where you said it. It is not cut out, because it is how you
 address the agent directly, and that is the only thing separating an
 instruction from the thinking-aloud around it: "the parser is probably fine,
-hey nome fix the failing test" is one prompt in which only the second half is a
-request. `listenTranscriptLabel` tells the agent it is called Nome and that
+hey nome execute, fix the failing test" is one prompt in which only the second
+half is a request. `listenTranscriptLabel` tells the agent it is called Nome and that
 speech marked with its name is the instruction, so the retained phrase reads as
 an address rather than as a stray word.
 
@@ -446,8 +446,8 @@ skew every dictated sentence toward a word only one mode cares about.
             "action": "interrupt_submit",
           },
           {
-            "canonical": "hey nome",
-            "variants": ["hey gnome", "hey nom", "hey no me"],
+            "canonical": "hey nome execute",
+            "variants": ["hey node execute", "hey norm execute", "hey nom execute"],
             "action": "submit",
           },
         ],
@@ -460,7 +460,7 @@ skew every dictated sentence toward a word only one mode cares about.
 Segmentation:
 
 - `listenSilenceDurationMs` _(optional)_ - how long a pause ends an utterance (default: `700`)
-- `listenSilenceThreshold` _(optional)_ - what counts as silence, in sox's own notation (default: `"2%"`). Passed to the recorder unchanged and deliberately not validated by the plugin
+- `listenSilenceThreshold` _(optional)_ - what counts as silence, in sox's own notation (default: `"0.5%"`). Passed to the recorder unchanged and deliberately not validated by the plugin
 - `listenMinSegmentMs` _(optional)_ - captures shorter than this are discarded without a transcription request (default: `400`). This is the cost gate: a cough should not become a billed request
 - `listenMaxSegmentMs` _(optional)_ - upper bound on a single utterance, after which the recorder is stopped normally (default: `30000`)
 
@@ -482,14 +482,32 @@ Wake phrases and submission:
 
 #### Choosing a phrase
 
-Length is the whole of the safety margin. `opencode execute` is four syllables
-of a word that almost never occurs in speech; `hey nome` is shorter to say and
-correspondingly closer to ordinary English, and its homophones are closer still.
-Both defaults are provided because the tradeoff is yours to make.
+Length is the whole of the safety margin, and it is what lets an unreliable word
+sit inside a reliable phrase. "Nome" is not a word, so the recogniser invents
+something different for it from speaker to speaker and even from utterance to
+utterance: on one microphone it came back as "node", "norm", "nom", "gnome" and
+"no me". No variant list for a two-word phrase can be complete.
 
-Be careful adding homophones to a two-word phrase. Several obvious ones for
-"nome" are deliberately absent from its variants, because they occur in
-unremarkable speech about code:
+So the name is bracketed rather than pinned down. "Hey" and "execute" transcribe
+reliably, and only the middle varies, which means a rendering you have not seen
+yet is one safe line to add. Measured against eighteen plausible utterances
+mentioning node, norm or execute:
+
+| phrase                              | fires when you say it | fires when you did not |
+| ----------------------------------- | --------------------- | ---------------------- |
+| `hey nome`, accepting `hey node`    | 5 of 6 renderings     | 5 of 18                |
+| the same, also accepting `hey norm` | 6 of 6                | 6 of 18                |
+| `hey nome execute`                  | 6 of 6                | 0 of 18                |
+
+The two-word phrase is bad in both directions at once. Accepting `hey node`
+fires on "hey node is crashing on startup" and still misses "Hey Norm";
+accepting `hey norm` too catches that and adds "hey norm reviewed the pull
+request". Lengthening the phrase fixed both at no cost to how fast it is to say
+
+- at five syllables `hey nome execute` is shorter than `opencode execute`.
+
+Homophones that are ordinary English stay out of the variants even in the long
+form, because they are not renderings the recogniser actually produces:
 
 ```
 "so I said hey name the function fetchUser and it worked"
@@ -497,20 +515,10 @@ unremarkable speech about code:
 "hey names are hard"
 ```
 
-`hey node` is the exception, and it is accepted deliberately. It is simply what
-the recogniser returns for "hey nome" - consistently, and regardless of whether
-the term is added to `sttVocabulary` - so rejecting it would make the phrase
-unusable rather than safe. It costs roughly five false positives in sixteen
-utterances of ordinary Node.js talk, which is the price of a phrase that fires
-at all. Two things blunt it: a false positive sends the whole buffer rather than
-a truncated prefix, so nothing is silently cut in half; and the transcript label
-tells the agent that "hey node" is almost always the mis-transcribed phrase.
-
 A false negative costs you saying the phrase again. A false positive sends
 speech to an agent holding file-modifying tools before you had finished
-composing it, and with `listenAutoSubmit` on it does so immediately. For any
-form other than the one the recogniser insists on, lengthen the phrase rather
-than accept the form.
+composing it, and with `listenAutoSubmit` on it does so immediately. Lengthen
+the phrase rather than accept a form.
 
 There is no LLM correction pass on continuously captured speech. Correcting each
 submission would add latency to every one of them, and a correction model that
@@ -520,6 +528,38 @@ transcript, and the agent has the project in front of it to check against -
 which the correction pass does not. The same label is what makes the retained
 wake phrase legible: it names the agent, and says that speech carrying that
 name is the instruction while the rest is context.
+
+#### Tuning pause sensitivity
+
+The defaults were measured on one microphone in one quiet room, so treat them as
+a starting point. Both values are per-room by nature: the threshold has to sit
+above your noise floor but below the quiet parts of your own speech.
+
+Record a few seconds of silence and a few of normal talking, then compare their
+amplitudes:
+
+```bash
+sox -t pulseaudio default -r 16000 -c 1 -b 16 noise.wav trim 0 5
+sox -t pulseaudio default -r 16000 -c 1 -b 16 speech.wav trim 0 8
+sox noise.wav -n stat
+sox speech.wav -n stat
+```
+
+Speech should be two or three orders of magnitude louder than the room. Pick a
+threshold a few times above the room's maximum. Then check where the cuts
+actually land, speaking a couple of sentences with natural pauses:
+
+```bash
+sox -t pulseaudio default -r 16000 -c 1 -b 16 seg.wav \
+    silence 1 0.1 0.5% 1 0.7 0.5% : newfile : restart
+soxi -D seg*.wav
+```
+
+Each file should be a whole thought. Segments merging is harmless - the buffer
+joins them and wake phrases are matched across the whole buffer - so lengthen
+`listenSilenceDurationMs` if sentences are being split, rather than shortening it
+to force more cuts. The trailing 44-byte file is an artefact of `newfile` and does
+not occur in the plugin, which runs one recorder per utterance.
 
 #### Calibrating the wake phrases
 

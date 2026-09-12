@@ -286,42 +286,62 @@ test("the defaults compile", () => {
   }
 });
 
-// "hey nome" is two tokens of ordinary English, and the homophones of "nome"
-// that were left out of its variants are ordinary English too. These occur in
-// unremarkable speech about code, and accepting them would fire the phrase at
-// something the developer never said. The exclusion is a deliberate choice
-// recorded in lib/wake.js, so it is asserted rather than left to whoever next
-// edits the list. "hey node" is not among them: it is accepted deliberately,
-// because it is what the recogniser returns for this speaker, and the test
-// below proves it matches.
-test("homophones that are ordinary speech are not accepted forms", () => {
+// The name in "hey nome ..." arrives as something different from every speaker,
+// so what the phrase rests on is the two tokens around it. These traps are
+// ordinary speech about code containing a homophone of the name, and they must
+// not fire: the words "hey node" or "hey norm" on their own are a topic, not an
+// address. This is the property that made lengthening the phrase worth it, so
+// it is asserted rather than left to whoever next edits the variant list.
+test("the name alone is not an address", () => {
   const traps = [
+    "hey node is crashing on startup",
+    "the hey node thing in the changelog",
+    "hey norm reviewed the pull request",
     "so I said hey name the function fetchUser and it worked",
     "can you rename this hey known issue",
     "hey names are hard",
+    "does node execute top level await yet",
+    "add a node execute step to the pipeline",
   ];
   for (const trap of traps) {
     assert.equal(findWake([trap], compiled), null, trap);
   }
 });
 
-// The recogniser returns "Hey Node." for this speaker in every measured
-// utterance, so this is not one variant among several -- it is the form the
-// phrase actually arrives in. It is asserted separately because a loop over the
-// variant list would pass if someone quietly dropped it and left the others.
-test("the form the recogniser actually produces is accepted", () => {
-  const hit = findWake(["the parser is probably fine. Hey Node. Fix the failing test."], compiled);
-  assert.ok(hit, "hey node must match, or the phrase is unusable for this speaker");
+// Every rendering of the name this speaker's own microphone has produced. The
+// list is the measurement, not a guess: "node" and "norm" both came back from
+// real utterances of "hey nome" on the same hardware, which is why the phrase
+// does not depend on any one of them being right.
+const OBSERVED_NAMES = ["nome", "node", "norm", "nom", "gnome", "no me"];
+
+test("every observed rendering of the name is accepted", () => {
+  for (const name of OBSERVED_NAMES) {
+    const hit = findWake([`refactor the parser hey ${name} execute`], compiled);
+    assert.ok(hit, name);
+    assert.equal(hit.action, SUBMIT, name);
+    assert.equal(hit.before, "refactor the parser", name);
+  }
+});
+
+// Zero tolerance under SC-003: the interrupt form must never resolve as a plain
+// submit. It holds because compilePhrases sorts by token count descending, so
+// every interrupt form outranks every submit form regardless of the name.
+test("the interrupt form outranks the submit form for every observed name", () => {
+  for (const name of OBSERVED_NAMES) {
+    const hit = findWake([`refactor the parser hey ${name} stop and execute`], compiled);
+    assert.ok(hit, name);
+    assert.equal(hit.action, INTERRUPT_SUBMIT, name);
+    assert.equal(hit.before, "refactor the parser", name);
+  }
+});
+
+test("the phrase carries punctuation and casing as the recogniser wrote it", () => {
+  const hit = findWake(
+    ["the parser is probably fine. Hey Norm, execute. Fix the failing test."],
+    compiled,
+  );
+  assert.ok(hit);
   assert.equal(hit.action, SUBMIT);
   assert.equal(hit.before, "the parser is probably fine.");
   assert.equal(hit.after, "Fix the failing test.");
-});
-
-test("the short phrase and its kept variants do match", () => {
-  for (const form of ["hey nome", "Hey, Nome.", "hey node", "hey gnome", "hey nom", "hey no me"]) {
-    const hit = findWake([`refactor the parser ${form}`], compiled);
-    assert.ok(hit, form);
-    assert.equal(hit.action, SUBMIT, form);
-    assert.equal(hit.before, "refactor the parser", form);
-  }
 });

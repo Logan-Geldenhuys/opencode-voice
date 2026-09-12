@@ -73,7 +73,19 @@ const OPTION_DEFAULTS = {
 // inspecting or discarding the buffer is (FR-013).
 const LISTEN_DEFAULTS = {
   listenSilenceDurationMs: 700,
-  listenSilenceThreshold: "2%",
+  // Measured rather than guessed, and the measurement moved it down by a factor
+  // of four. On a quiet room the noise floor peaks around 0.07% in 20ms
+  // windows, while the quietest dips inside continuous speech - inter-word gaps
+  // and unvoiced consonants - bottom out around 0.83%. The threshold has to sit
+  // in that valley. A threshold of 2% is above the speech dips, which made a
+  // fifth of an uninterrupted eight-second monologue read as silence and left
+  // the 700ms duration requirement as the only thing preventing mid-word cuts.
+  // Much below 0.3% risks the opposite failure, where room noise never counts
+  // as silence and every utterance runs to listenMaxSegmentMs instead.
+  //
+  // This is one room and one microphone, so it is a starting point, not a
+  // constant. The tuning procedure is in the README.
+  listenSilenceThreshold: "0.5%",
   listenMinSegmentMs: 400,
   listenMaxSegmentMs: 30000,
   listenMaxBufferAgeMs: 3600000,
@@ -87,10 +99,12 @@ const LISTEN_DEFAULTS = {
   // listed here: they are present in the transcript, they are configurable, and
   // a list repeated in prose would eventually disagree with the configuration.
   //
-  // The mis-transcription is called out by name for one reason: "hey node" is a
-  // sentence a developer could mean literally, so an agent reading it has no
-  // way to tell an address from a topic. Every other accepted form is nonsense
-  // in context and needs no explanation.
+  // The mis-transcription is called out because the name is the one part of
+  // the phrase that is not stable: it has come back as "node" and as "norm"
+  // from the same speaker on the same microphone. Both are words a developer
+  // could mean literally, so an agent reading one has no way to tell a
+  // mangled address from a topic unless told. The tokens around the name are
+  // transcribed reliably and need no explanation.
   //
   // This label belongs to continuous listening only. Held-key dictation
   // transcribes and returns text; it has no wake phrase to explain and no
@@ -102,9 +116,10 @@ const LISTEN_DEFAULTS = {
     "The developer speaks to you as Nome. A phrase addressing you by name is how they mark " +
     "a direct instruction; the surrounding speech is them thinking aloud, and is context " +
     "rather than a request. Act on the instruction, and use the rest to inform how. " +
-    'Speech recognition frequently renders "Nome" as "node", so "hey node" is almost ' +
-    "always this phrase rather than a reference to Node.js; read it as the developer " +
-    "addressing you and do not remark on the error.",
+    'Speech recognition renders "Nome" inconsistently, most often as "node" or "norm". ' +
+    'A phrase of the form "hey <something> execute" is this address mis-transcribed rather ' +
+    "than a reference to Node.js or to a colleague; read it as the developer speaking to " +
+    "you and do not remark on the error.",
 };
 
 // The host resolves {env:NAME} references in option values before the plugin
