@@ -46,15 +46,15 @@ Not commands. Triggered by speech, matched against the buffer.
 
 Satisfies FR-006, FR-008, FR-009, FR-016.
 
-| Step | Behaviour                                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------------------------- |
-| 1    | Expired entries dropped (FR-014)                                                                              |
-| 2    | Phrase located as a contiguous run of normalised tokens across the remaining entries                          |
-| 3    | Entry texts sliced at the run's spans: the phrase is excised and the text on both sides of it joined (FR-008) |
-| 4    | Buffer emptied                                                                                                |
-| 5    | Transcript label prefixed to the sliced text (FR-009)                                                         |
-| 6    | Empty result → nothing submitted, developer told why (FR-016)                                                 |
-| 7    | Prompt submitted to the agent                                                                                 |
+| Step | Behaviour                                                                                                      |
+| ---- | -------------------------------------------------------------------------------------------------------------- |
+| 1    | Expired entries dropped (FR-014)                                                                               |
+| 2    | Phrase located as a contiguous run of normalised tokens across the remaining entries                           |
+| 3    | Entry texts joined verbatim, phrase included; the run's spans only say whether anything else was said (FR-008) |
+| 4    | Buffer emptied                                                                                                 |
+| 5    | Transcript label prefixed, naming the agent so the retained phrase reads as an address (FR-009)                |
+| 6    | Empty result → nothing submitted, developer told why (FR-016)                                                  |
+| 7    | Prompt submitted to the agent                                                                                  |
 
 Steps 2 and 3 are separate on purpose. The phrase is located through normalised tokens and the prompt is cut from the original text, so the agent receives the capitalisation and punctuation the developer spoke. Submitting a normalised form would turn `Server.tsx` into `servertsx`. SC-011 measures the difference character for character.
 

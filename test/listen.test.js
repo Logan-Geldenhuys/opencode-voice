@@ -494,7 +494,7 @@ test("formatted status distinguishes off from listening", () => {
 
 // ---- submission ------------------------------------------------------------
 
-test("the wake phrase sends everything since the last submission and nothing else", async () => {
+test("the wake phrase sends everything since the last submission, phrase included", async () => {
   const h = harness({
     durations: [1000, 1000],
     transcripts: [{ text: "Refactor Server.tsx, please." }, { text: "opencode execute" }],
@@ -503,8 +503,8 @@ test("the wake phrase sends everything since the last submission and nothing els
   assert.equal(h.appended.length, 1);
   const sent = h.appended[0].body.text;
   assert.match(sent, /^VOICE TRANSCRIPT\.\n\n/, "labelled as a transcript");
-  assert.equal(sent.split("\n\n")[1], "Refactor Server.tsx, please.");
-  assert.doesNotMatch(sent, /opencode execute/, "the phrase itself is not sent");
+  assert.equal(sent.split("\n\n")[1], "Refactor Server.tsx, please. opencode execute");
+  assert.match(sent, /opencode execute/, "the phrase marks the direct address and is kept");
   assert.equal(h.submitted.length, 1);
 });
 
@@ -525,9 +525,10 @@ test("the second submission does not repeat the first", async () => {
   assert.match(h.appended[1].body.text, /second thing/);
 });
 
-test("the phrase is excised and the rest of the utterance is sent with it", async () => {
+test("the whole utterance is sent with the phrase in place", async () => {
   // The phrase introduces an instruction as often as it follows one, so both
-  // sides of it are one prompt. Nothing is held back for a later submission.
+  // sides of it are one prompt. Nothing is held back for a later submission,
+  // and nothing is cut out: the phrase is what marks the instruction.
   const h = harness({
     durations: [1000, 1000],
     transcripts: [{ text: "do the thing opencode execute and then this bit" }, { text: "x" }],
@@ -535,11 +536,14 @@ test("the phrase is excised and the rest of the utterance is sent with it", asyn
   await h.listener.start();
   await until(() => h.appended.length >= 1);
   await settle();
-  assert.equal(h.appended[0].body.text.split("\n\n")[1], "do the thing and then this bit");
+  assert.equal(
+    h.appended[0].body.text.split("\n\n")[1],
+    "do the thing opencode execute and then this bit",
+  );
   await h.listener.stop();
 });
 
-test("a phrase opening the utterance sends the instruction it introduces", async () => {
+test("a phrase opening the utterance marks the instruction it introduces", async () => {
   const h = harness({
     durations: [1000, 1000],
     transcripts: [{ text: "hey nome fix the failing test" }, { text: "x" }],
@@ -547,7 +551,7 @@ test("a phrase opening the utterance sends the instruction it introduces", async
   await h.listener.start();
   await until(() => h.appended.length >= 1);
   await settle();
-  assert.equal(h.appended[0].body.text.split("\n\n")[1], "fix the failing test");
+  assert.equal(h.appended[0].body.text.split("\n\n")[1], "hey nome fix the failing test");
   await h.listener.stop();
 });
 
@@ -582,7 +586,10 @@ test("no segment can be transcribed while a submission is being delivered", asyn
   const duringDelivery = h.requested.length;
   await settle();
   assert.equal(h.requested.length, duringDelivery, "the loop is not transcribing meanwhile");
-  assert.equal(h.appended[0].body.text.split("\n\n")[1], "the original plan and later words");
+  assert.equal(
+    h.appended[0].body.text.split("\n\n")[1],
+    "the original plan opencode execute and later words",
+  );
 
   release();
   await settle();
@@ -615,7 +622,7 @@ test("the phrase preserves the transcript character for character", async () => 
   await runFor(h, 2);
   assert.equal(
     h.appended[0].body.text.split("\n\n")[1],
-    "Open lib/Server.tsx and check the `parse()` call -- it's wrong.",
+    "Open lib/Server.tsx and check the `parse()` call -- it's wrong. Opencode, execute!",
   );
 });
 
@@ -626,7 +633,7 @@ test("a phrase split across a pause still fires", async () => {
   });
   await runFor(h, 3);
   assert.equal(h.appended.length, 1);
-  assert.equal(h.appended[0].body.text.split("\n\n")[1], "fix the parser");
+  assert.equal(h.appended[0].body.text.split("\n\n")[1], "fix the parser opencode execute");
 });
 
 test("without auto-submit the prompt is filled but not sent, and the buffer still advances", async () => {

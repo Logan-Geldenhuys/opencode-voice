@@ -79,10 +79,20 @@ const LISTEN_DEFAULTS = {
   listenMaxBufferAgeMs: 3600000,
   listenMaxBufferChars: 64000,
   listenAutoSubmit: true,
+  // The label is the entire substitute for a correction pass, and it is also
+  // what makes the retained wake phrase legible. The transcript is a stretch of
+  // thinking aloud with a direct instruction somewhere inside it; naming the
+  // agent is what lets it tell the two apart, because the phrase the developer
+  // says out loud is an address. The phrases themselves are deliberately not
+  // listed here: they are present in the transcript, they are configurable, and
+  // a list repeated in prose would eventually disagree with the configuration.
   listenTranscriptLabel:
     "The following is a voice transcript and may contain speech recognition errors, " +
     "particularly in code identifiers, file paths and technical terms. Treat unfamiliar " +
-    "identifiers with suspicion and verify them against the project before acting on them.",
+    "identifiers with suspicion and verify them against the project before acting on them. " +
+    "The developer speaks to you as Nome. A phrase addressing you by name is how they mark " +
+    "a direct instruction; the surrounding speech is them thinking aloud, and is context " +
+    "rather than a request. Act on the instruction, and use the rest to inform how.",
 };
 
 // The host resolves {env:NAME} references in option values before the plugin

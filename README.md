@@ -396,9 +396,16 @@ the agent, so you can think aloud across as many pauses as you like and then
 commit in one breath.
 
 The phrase can fall anywhere in the sentence. "Hey nome, fix the failing test"
-and "fix the failing test, hey nome" both send `fix the failing test`: the
-phrase is cut out and everything else goes, so you never have to remember
-whether it goes first or last.
+and "fix the failing test, hey nome" both send the whole thing, so you never
+have to remember whether it goes first or last.
+
+The phrase stays where you said it. It is not cut out, because it is how you
+address the agent directly, and that is the only thing separating an
+instruction from the thinking-aloud around it: "the parser is probably fine,
+hey nome fix the failing test" is one prompt in which only the second half is a
+request. `listenTranscriptLabel` tells the agent it is called Nome and that
+speech marked with its name is the instruction, so the retained phrase reads as
+an address rather than as a stray word.
 
 It needs `sttApiEndpoint`; the segments are short and frequent, and local
 `whisper-cli` is not fast enough to keep up on CPU.
@@ -457,7 +464,7 @@ desk, `/listen-discard` is the honest answer.
 Wake phrases and submission:
 
 - `listenWakePhrases` _(optional)_ - array of `{canonical, variants, action}`, where `action` is `"submit"` or `"interrupt_submit"`. A phrase must be at least two words, and two phrases may not compile to the same words with different actions. When two phrases share a prefix, the longer one wins
-- `listenTranscriptLabel` _(optional)_ - text prefixed to every submission, warning the agent that what follows is a voice transcript
+- `listenTranscriptLabel` _(optional)_ - text prefixed to every submission, warning the agent that what follows is a voice transcript and telling it the name the developer addresses it by
 - `listenAutoSubmit` _(optional)_ - whether the wake phrase submits the prompt or just fills it (default: `true`). With `false`, the buffer still advances and the interrupt phrase still stops the agent; only the final send is left to you. Useful for the first session
 
 #### Choosing a phrase
@@ -486,7 +493,9 @@ submission would add latency to every one of them, and a correction model that
 is confident and wrong substitutes plausible identifiers for the ones you
 actually said. Instead `listenTranscriptLabel` tells the agent it is reading a
 transcript, and the agent has the project in front of it to check against -
-which the correction pass does not.
+which the correction pass does not. The same label is what makes the retained
+wake phrase legible: it names the agent, and says that speech carrying that
+name is the instruction while the rest is context.
 
 #### Calibrating the wake phrases
 
@@ -614,11 +623,12 @@ then `s`.
 4. After every append, the buffer is searched for a wake phrase. The search runs
    across the whole buffer rather than one utterance, so a phrase split by a
    pause still matches
-5. On a match, the phrase is cut out of wherever it fell and everything else in
-   the buffer is sent as one prompt, including the rest of the sentence the
-   phrase was spoken in. The buffer is left empty. What is sent is the text
-   exactly as transcribed - the plugin matches on a normalised copy but never
-   sends one, so `Server.tsx` arrives as `Server.tsx`
+5. On a match, the whole buffer is sent as one prompt, wake phrase included and
+   in the position it was spoken, and the buffer is left empty. The phrase is
+   kept because it is what marks the direct instruction; the label tells the
+   agent as much. Nothing is sent when the buffer holds nothing but the phrase.
+   What is sent is the text exactly as transcribed - the plugin matches on a
+   normalised copy but never sends one, so `Server.tsx` arrives as `Server.tsx`
 
 The plain phrase always submits and never stops the agent, whatever the agent
 happens to be doing; the interrupt phrase stops it first, and is not an error

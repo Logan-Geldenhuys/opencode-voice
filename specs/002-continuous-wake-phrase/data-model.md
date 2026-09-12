@@ -91,10 +91,10 @@ Created when listening starts. Cleared on every submission. Destroyed when liste
 
 1. Drop expired entries.
 2. Locate the wake phrase as a contiguous run of normalised tokens across the remaining entries. No normalised string is assembled; each token carries offsets into the entry text it came from.
-3. Slice the originals at those offsets: text before the run is the prompt, the run itself is excluded, text after it is retained for the next buffer (FR-008).
+3. Join the entry texts verbatim, wake phrase included and in the position it was spoken (FR-008). The run's offsets are read only to decide whether anything besides the phrase was said; nothing is cut out.
 4. Empty `entries`.
-5. Prefix the transcript label (FR-009) to the sliced text.
-6. If the sliced text is empty, report and stop without submitting (FR-016).
+5. Prefix the transcript label (FR-009), which names the agent so the retained phrase reads as a direct address.
+6. If nothing besides the phrase was said, report and stop without submitting (FR-016).
 7. Submit.
 
 Step 3 is the load-bearing one. The phrase is located through normalised tokens but the prompt is cut from the original text, so what reaches the agent retains the capitalisation and punctuation the developer spoke (FR-023). Slicing a normalised form instead would send `servertsx` where the developer said `Server.tsx`. SC-011 measures this character for character.

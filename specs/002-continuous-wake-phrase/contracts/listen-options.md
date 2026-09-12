@@ -68,9 +68,11 @@ The `variants` lists above are starting points, not measurements. Establishing w
 
 Default label:
 
-> The following is a voice transcript and may contain speech recognition errors, particularly in code identifiers, file paths and technical terms. Treat unfamiliar identifiers with suspicion and verify them against the project before acting on them.
+> The following is a voice transcript and may contain speech recognition errors, particularly in code identifiers, file paths and technical terms. Treat unfamiliar identifiers with suspicion and verify them against the project before acting on them. The developer speaks to you as Nome. A phrase addressing you by name is how they mark a direct instruction; the surrounding speech is them thinking aloud, and is context rather than a request. Act on the instruction, and use the rest to inform how.
 
-This label is the entire substitute for a correction pass (FR-010, research.md R-103). It is configurable because its effectiveness depends on the agent model reading it.
+This label does two jobs. It is the entire substitute for a correction pass (FR-010, research.md R-103), and it is what makes the retained wake phrase legible (FR-008, FR-009): the phrase is left in the transcript because it marks the direct instruction, which only helps if the recipient knows that is what it is. It is configurable because its effectiveness depends on the agent model reading it.
+
+The label names the agent but deliberately does not list the configured phrases. The phrases are already present in the transcript, and they are configuration — a prose list of them would eventually disagree with `listenWakePhrases`, and the failure would be silent.
 
 `listenAutoSubmit` defaults to `true`, inverting feature 001's review-before-send default. That inversion is deliberate and is justified in the spec: the wake phrase _is_ the developer's confirming act. The option exists so the inversion can be undone during tuning, when a developer may want to see what a wake phrase would have submitted before trusting it to submit.
 

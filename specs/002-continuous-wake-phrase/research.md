@@ -139,7 +139,7 @@ FR-023 requires the original text be submitted and SC-011 measures it character 
 
 Two matching rules remain, neither obvious:
 
-1. **Match against the whole buffer, not each segment** (FR-004). A phrase spoken across a pause lands in two segments and appears in neither alone. Pause placement inside a two-word phrase is not under the speaker's conscious control, so this is a normal case, not an edge case. Token runs cross entry boundaries; the slices come from whichever entries the run touched.
+1. **Match against the whole buffer, not each segment** (FR-004). A phrase spoken across a pause lands in two segments and appears in neither alone. Pause placement inside a two-word phrase is not under the speaker's conscious control, so this is a normal case, not an edge case. Token runs cross entry boundaries; the run's offsets say only where the phrase is, not what to remove.
 2. **Longest phrase wins** (FR-005). The two configured phrases share a prefix by design - one is the other plus an inserted word. Matching the shorter one first would read the interrupt variant as a plain submission followed by stray words, submitting the wrong thing _and_ failing to interrupt. SC-003 requires zero occurrences of this, which is why the phrase list is sorted by token count at compile time: the guarantee becomes a property of the data structure rather than a code path a caller can bypass.
 
 A third rule was specified and has been removed. An earlier draft resolved multiple matches in the buffer by taking the last occurrence. But FR-004 requires detection after every segment append, so at most one phrase can be present at the moment detection runs - the first would have fired and cleared the buffer before the second was spoken. First-versus-last was unobservable. It has been replaced by the invariant itself, plus a test asserting it.
@@ -240,8 +240,8 @@ Doing the mutation first closes it without a mechanism:
 ```text
 1. drop expired entries          |
 2. locate the phrase             |  synchronous: one tick, no await
-3. slice before / after          |
-4. replace the buffer with `after`  |
+3. join the entry texts          |
+4. empty the buffer              |
 --- first await below this line ---
 5. prefix the transcript label
 6. submit (and, for the interrupt phrase, abort first)
@@ -272,19 +272,19 @@ So the second becomes a calibration step in [quickstart.md](./quickstart.md): sp
 
 ## Resolved unknowns
 
-| Unknown                                                 | Resolution                                                                   |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Streaming transcription available?                      | No. 403 on both realtime endpoints (R-102)                                   |
-| How to segment continuous audio                         | Recorder's silence detection, thresholds configurable (R-101)                |
-| How the plugin learns a segment is complete             | The recorder exits. One process per utterance, measured equivalent (R-101)   |
-| Whether to correct continuous speech                    | No. Label as transcript (R-103)                                              |
-| How to match phrases reliably                           | Token runs, longest first (R-104)                                            |
-| What text reaches the agent                             | The original, sliced by token offsets. No normalised string is built (R-104) |
-| Plain phrase behaviour while agent busy                 | Always submits, never aborts (R-105)                                         |
-| Persistent indicator reachable from an external plugin? | Unproven, and no longer needed. Announce transitions (R-106)                 |
-| Preventing double capture                               | Modes are exclusive; the second attempt is refused (R-107)                   |
-| Where the "is anything capturing" answer lives          | One registry in `lib/capture.js`, joined by both modes (R-108)               |
-| Losing or duplicating speech during assembly            | Mutate the buffer before the first await. No lock (R-109)                    |
-| How reliably the service returns the phrase             | Calibrated once into `variants`; not a CI gate (R-110)                       |
-| How to tune pause thresholds outside the editor         | Two lines of shell against the recorder itself (R-101)                       |
-| Buffer bounds                                           | Age and size, both evicting whole oldest entries (data-model.md)             |
+| Unknown                                                 | Resolution                                                                  |
+| ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Streaming transcription available?                      | No. 403 on both realtime endpoints (R-102)                                  |
+| How to segment continuous audio                         | Recorder's silence detection, thresholds configurable (R-101)               |
+| How the plugin learns a segment is complete             | The recorder exits. One process per utterance, measured equivalent (R-101)  |
+| Whether to correct continuous speech                    | No. Label as transcript (R-103)                                             |
+| How to match phrases reliably                           | Token runs, longest first (R-104)                                           |
+| What text reaches the agent                             | The buffer verbatim, phrase included. No normalised string is built (R-104) |
+| Plain phrase behaviour while agent busy                 | Always submits, never aborts (R-105)                                        |
+| Persistent indicator reachable from an external plugin? | Unproven, and no longer needed. Announce transitions (R-106)                |
+| Preventing double capture                               | Modes are exclusive; the second attempt is refused (R-107)                  |
+| Where the "is anything capturing" answer lives          | One registry in `lib/capture.js`, joined by both modes (R-108)              |
+| Losing or duplicating speech during assembly            | Mutate the buffer before the first await. No lock (R-109)                   |
+| How reliably the service returns the phrase             | Calibrated once into `variants`; not a CI gate (R-110)                      |
+| How to tune pause thresholds outside the editor         | Two lines of shell against the recorder itself (R-101)                      |
+| Buffer bounds                                           | Age and size, both evicting whole oldest entries (data-model.md)            |
