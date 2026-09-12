@@ -434,13 +434,13 @@ the agent, so you can think aloud across as many pauses as you like and then
 commit in one breath.
 
 The phrase can fall anywhere in the sentence. "Hey nome execute, fix the
-failing test" and "fix the failing test, hey nome execute" both send the whole
+failing test" and "fix the failing test, hey nome" both send the whole
 thing, so you never have to remember whether it goes first or last.
 
 The phrase stays where you said it. It is not cut out, because it is how you
 address the agent directly, and that is the only thing separating an
 instruction from the thinking-aloud around it: "the parser is probably fine,
-hey nome execute, fix the failing test" is one prompt in which only the second
+hey nome, fix the failing test" is one prompt in which only the second
 half is a request. `listenTranscriptLabel` tells the agent it is called Nome and that
 speech marked with its name is the instruction, so the retained phrase reads as
 an address rather than as a stray word.
@@ -484,6 +484,16 @@ skew every dictated sentence toward a word only one mode cares about.
             "action": "interrupt_submit",
           },
           {
+            "canonical": "hey nome",
+            "variants": ["hey node", "hey noam"],
+            "action": "submit",
+          },
+          {
+            "canonical": "hey nome stop",
+            "variants": ["hey node stop", "hey noam stop"],
+            "action": "interrupt_submit",
+          },
+          {
             "canonical": "hey nome execute",
             "variants": ["hey node execute", "hey norm execute", "hey nom execute"],
             "action": "submit",
@@ -520,43 +530,73 @@ Wake phrases and submission:
 
 #### Choosing a phrase
 
-Length is the whole of the safety margin, and it is what lets an unreliable word
-sit inside a reliable phrase. "Nome" is not a word, so the recogniser invents
-something different for it from speaker to speaker and even from utterance to
-utterance: on one microphone it came back as "node", "norm", "nom", "gnome" and
-"no me". No variant list for a two-word phrase can be complete.
+Two forces pull against each other. "Nome" is not a word, so the recogniser
+invents something different for it from utterance to utterance: on one
+microphone it came back as "node", "norm", "nom", "gnome", "no me" and "noam".
+That argues for a long phrase, because bracketing the unstable word between two
+reliable ones means a rendering you have not seen yet is one safe line to add.
+Against that, the phrase is said constantly, and six syllables before every
+request is a real tax.
 
-So the name is bracketed rather than pinned down. "Hey" and "execute" transcribe
-reliably, and only the middle varies, which means a rendering you have not seen
-yet is one safe line to add. Measured against eighteen plausible utterances
-mentioning node, norm or execute:
+Where the balance falls depends on **which renderings you actually produce** and
+**where in the sentence you say it** — and both of those are questions only real
+dictation answers. Measured against a corpus of plausible developer speech:
 
-| phrase                              | fires when you say it | fires when you did not |
-| ----------------------------------- | --------------------- | ---------------------- |
-| `hey nome`, accepting `hey node`    | 5 of 6 renderings     | 5 of 18                |
-| the same, also accepting `hey norm` | 6 of 6                | 6 of 18                |
-| `hey nome execute`                  | 6 of 6                | 0 of 18                |
+| phrase                     | tokens | fires when you say it | fires when you did not |
+| -------------------------- | ------ | --------------------- | ---------------------- |
+| `hey nome`, all renderings | 2      | 7 of 7                | 7 of 14                |
+| `hey nome`, `node`, `noam` | 2      | 4 of 4 observed       | 6 of 14                |
+| `hey nome execute`         | 3      | 7 of 7                | 0 of 14                |
+| `nome execute`             | 2      | 7 of 7                | 2 of 16                |
+| `nome please`              | 2      | 7 of 7                | 2 of 16                |
+| `nome do it`               | 3      | 7 of 7                | 2 of 26                |
+| `nome all yours`           | 3      | 7 of 7                | 0 of 26                |
 
-The two-word phrase is bad in both directions at once. Accepting `hey node`
-fires on "hey node is crashing on startup" and still misses "Hey Norm";
-accepting `hey norm` too catches that and adds "hey norm reviewed the pull
-request". Lengthening the phrase fixed both at no cost to how fast it is to say
+Read structurally: **every two-token form has false positives and every clean
+form has three tokens.** That is not a tuning failure. A name-homophone plus one
+common word genuinely occurs in speech — "does node go through the proxy", "is
+node now supported", "let node do it automatically". The third token is what
+buys the margin, and `execute` is not special; `all yours`, `crack on`,
+`off you go` and `over to you` all score zero too, at fewer syllables.
 
-- at five syllables `hey nome execute` is shorter than `opencode execute`.
+The defaults ship both lengths, because the two failure modes are not
+symmetrical across renderings:
 
-Homophones that are ordinary English stay out of the variants even in the long
-form, because they are not renderings the recogniser actually produces:
+- **Three tokens** for every rendering, including the ones that collide with
+  ordinary English. `hey norm` is a colleague, `hey gnome` is a desktop, and
+  `hey no me` is the tail of "no, me neither"; those are only safe bracketed.
+- **Two tokens** for `hey nome`, `hey node` and `hey noam` only — the
+  renderings observed in real use, none of which is a phrase you would say
+  about anything else. Plus `hey nome stop`, so "Hey Noam, stop." interrupts
+  instead of submitting.
+
+The short form accepts false positives the long one refused, and the honest
+example is real: `"hey noam tell me what i'm saying"` fires. Under the vocative
+reading that is _correct_ — it names the assistant and asks it something. What
+stays genuinely wrong is talking about Node.js straight after "hey", which is
+rare in dictation because the interjection earns nothing: people say "node is
+crashing", not "hey node is crashing".
+
+Which brings in position. The corpus above assumed a **terminator**, said after
+a finished thought, which is what made a long phrase look affordable. In
+practice the address is a **vocative** that opens a request:
 
 ```
-"so I said hey name the function fetchUser and it worked"
-"can you rename this hey known issue"
-"hey names are hard"
+"Hey Noam, what's on the fourth page?"
+"Go to page five. Hey Noam, can you open the overview mode?"
 ```
+
+Because the buffer is sent verbatim with the phrase still in it, the request
+that follows the address travels with it, so opening works as well as closing.
+One caveat specific to opening: if you pause for longer than
+`listenSilenceDurationMs` in the middle of the address, the segment ends and
+fires without the request. Say the address and the request in one breath.
 
 A false negative costs you saying the phrase again. A false positive sends
 speech to an agent holding file-modifying tools before you had finished
-composing it, and with `listenAutoSubmit` on it does so immediately. Lengthen
-the phrase rather than accept a form.
+composing it, and with `listenAutoSubmit` on it does so immediately — which is
+the reason to leave that off until the phrase has earned its place. Where a
+rendering is ordinary English, lengthen the phrase rather than accept the form.
 
 There is no LLM correction pass on continuously captured speech. Correcting each
 submission would add latency to every one of them, and a correction model that

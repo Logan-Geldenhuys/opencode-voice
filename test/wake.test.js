@@ -286,30 +286,81 @@ test("the defaults compile", () => {
   }
 });
 
-// The name in "hey nome ..." arrives as something different from every speaker,
-// so what the phrase rests on is the two tokens around it. These traps are
-// ordinary speech about code containing a homophone of the name, and they must
-// not fire: the words "hey node" or "hey norm" on their own are a topic, not an
-// address. This is the property that made lengthening the phrase worth it, so
-// it is asserted rather than left to whoever next edits the variant list.
-test("the name alone is not an address", () => {
+// The renderings that collide with ordinary speech are kept out of the
+// two-token address and only ever appear in a longer form. These are the
+// collisions, and they must not fire: "hey norm" is a colleague, "hey gnome"
+// is a desktop, "hey no me" is the tail of "no, me neither", and "name",
+// "known" and "names" are ordinary words this speaker has never produced for
+// the address. This is what makes the short form affordable, so it is asserted
+// rather than left to whoever next edits the variant list.
+test("renderings that collide with ordinary speech are not accepted short", () => {
   const traps = [
-    "hey node is crashing on startup",
-    "the hey node thing in the changelog",
     "hey norm reviewed the pull request",
+    "hey gnome keyring keeps locking itself",
+    "hey no me neither honestly",
+    "hey nom nom nom said the cookie monster",
     "so I said hey name the function fetchUser and it worked",
     "can you rename this hey known issue",
     "hey names are hard",
+    // No "hey" adjacent to the name, so neither form applies.
     "does node execute top level await yet",
     "add a node execute step to the pipeline",
-    // A real utterance, dictated while the three-token phrase was live. It
-    // names the assistant and asks it something, and it still must not fire:
-    // addressing the assistant is not the same as instructing it to go.
-    "hey noam tell me what i'm saying",
+    "hey can you check the node version",
+    "hey look at node modules",
   ];
   for (const trap of traps) {
     assert.equal(findWake([trap], compiled), null, trap);
   }
+});
+
+// The cost of the short form, recorded rather than hidden. Both of these fire,
+// and both are sentences about Node.js rather than addresses to the assistant.
+// They are accepted because the interjection is what makes them unnatural:
+// dictation says "node is crashing", not "hey node is crashing". The recovery
+// is to discard the buffer, and with review-before-send configured the cost is
+// a discarded prompt rather than an unintended action. If this assertion ever
+// starts failing, someone has tightened the phrase - which is a fix, not a
+// regression, and this test should be deleted rather than repaired.
+test("the short form fires on speech about Node.js, which is the accepted cost", () => {
+  for (const utterance of [
+    "hey node is crashing on startup",
+    "i said hey node and it ignored me",
+  ]) {
+    assert.notEqual(findWake([utterance], compiled), null, utterance);
+  }
+});
+
+// Real utterances from a dictated session. The address opens a request rather
+// than closing a finished thought, and because the buffer is sent verbatim the
+// request travels with the address that introduced it.
+test("the address opens a request and sends it", () => {
+  const compiledShort = compilePhrases(DEFAULT_WAKE_PHRASES);
+  for (const utterance of [
+    "Hey Noam, what's on the fourth page?",
+    "Hey, Noam, go to page five.",
+    "Go to page five. Hey Noam, can you open the overview mode?",
+  ]) {
+    const hit = findWake([utterance], compiledShort);
+    assert.notEqual(hit, null, utterance);
+    assert.equal(hit.action, SUBMIT, utterance);
+  }
+  // Speech with no address in it stays buffered.
+  assert.equal(findWake(["Can we take a look at the graph?"], compiledShort), null);
+});
+
+// "Hey Noam, stop." must interrupt rather than submit. Three tokens outrank
+// the two-token address, so this holds by the compile-time sort (SC-003).
+test("the short address with a stop interrupts rather than submits", () => {
+  const compiledShort = compilePhrases(DEFAULT_WAKE_PHRASES);
+  for (const name of ["nome", "node", "noam"]) {
+    const hit = findWake([`hey ${name} stop and look at the parser`], compiledShort);
+    assert.notEqual(hit, null, name);
+    assert.equal(hit.action, INTERRUPT_SUBMIT, name);
+  }
+  // A question that merely contains "stop" is not an interrupt, because the
+  // tokens are not contiguous.
+  const asked = findWake(["hey nome can you stop the server"], compiledShort);
+  assert.equal(asked.action, SUBMIT);
 });
 
 // Every rendering of the name this speaker's own microphone has produced. The

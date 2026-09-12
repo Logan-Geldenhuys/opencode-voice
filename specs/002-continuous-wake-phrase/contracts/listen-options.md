@@ -58,7 +58,11 @@ Default:
   { "canonical": "hey nome stop and execute", "action": "interrupt_submit",
     "variants": ["hey node stop and execute", "hey norm stop and execute",
                  "hey nom stop and execute", "hey gnome stop and execute",
-                 "hey no me stop and execute"] }
+                 "hey no me stop and execute"] },
+  { "canonical": "hey nome",                  "action": "submit",
+    "variants": ["hey node", "hey noam"] },
+  { "canonical": "hey nome stop",             "action": "interrupt_submit",
+    "variants": ["hey node stop", "hey noam stop"] }
 ]
 ```
 
@@ -81,7 +85,9 @@ Default label:
 
 This label does two jobs. It is the entire substitute for a correction pass (FR-010, research.md R-103), and it is what makes the retained wake phrase legible (FR-008, FR-009): the phrase is left in the transcript because it marks the direct instruction, which only helps if the recipient knows that is what it is. It is configurable because its effectiveness depends on the agent model reading it.
 
-The label calls out the unstable token by name. The name in `hey nome execute` arrives as `node` or `norm` more often than as itself, and both of those are words a developer could mean literally, so an agent reading one has no way to tell a mangled address from a topic. The tokens bracketing it transcribe reliably and need no explanation. Explaining the distortion is what makes retaining the phrase under FR-008 useful rather than merely harmless.
+The label calls out the unstable token by name. The name arrives as `node` or `noam` more often than as itself, and both of those are words a developer could mean literally, so an agent reading one has no way to tell a mangled address from a topic. The tokens around it transcribe reliably and need no explanation. Explaining the distortion is what makes retaining the phrase under FR-008 useful rather than merely harmless.
+
+The default set carries the same address at two lengths, because the collision risk is not uniform across renderings. `norm`, `gnome`, `nom` and `no me` are ordinary English and appear only in the bracketed forms; `nome`, `node` and `noam` are not phrases a developer says about anything else, and appear at two tokens as well. Real dictation also settled the phrase's position: it is spoken as a vocative opening a request rather than as a terminator following one, which is why two tokens matters enough to accept a narrower margin for three of the renderings. The measurements behind both choices are recorded in R-104.
 
 Otherwise the label names the agent but deliberately does not list the configured phrases. The phrases are already present in the transcript, and they are configuration — a prose list of them would eventually disagree with `listenWakePhrases`, and the failure would be silent.
 

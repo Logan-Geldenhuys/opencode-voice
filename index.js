@@ -116,10 +116,11 @@ const LISTEN_DEFAULTS = {
     "The developer speaks to you as Nome. A phrase addressing you by name is how they mark " +
     "a direct instruction; the surrounding speech is them thinking aloud, and is context " +
     "rather than a request. Act on the instruction, and use the rest to inform how. " +
-    'Speech recognition renders "Nome" inconsistently, most often as "node" or "norm". ' +
-    'A phrase of the form "hey <something> execute" is this address mis-transcribed rather ' +
-    "than a reference to Node.js or to a colleague; read it as the developer speaking to " +
-    "you and do not remark on the error.",
+    'Speech recognition renders "Nome" inconsistently, most often as "node" or "noam". ' +
+    'So "hey node" and "hey noam" are this address mis-transcribed rather than a reference ' +
+    "to Node.js or to a colleague. The address usually opens the request it belongs to, as " +
+    'in "hey node, what\'s on the fourth page?" - read it as the developer speaking to you, ' +
+    "act on the request that follows it, and do not remark on the mis-transcription.",
 };
 
 // The host resolves {env:NAME} references in option values before the plugin
