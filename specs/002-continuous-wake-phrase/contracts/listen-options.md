@@ -68,11 +68,13 @@ The `variants` lists above are starting points, not measurements. Establishing w
 
 Default label:
 
-> The following is a voice transcript and may contain speech recognition errors, particularly in code identifiers, file paths and technical terms. Treat unfamiliar identifiers with suspicion and verify them against the project before acting on them. The developer speaks to you as Nome. A phrase addressing you by name is how they mark a direct instruction; the surrounding speech is them thinking aloud, and is context rather than a request. Act on the instruction, and use the rest to inform how.
+> The following is a voice transcript and may contain speech recognition errors, particularly in code identifiers, file paths and technical terms. Treat unfamiliar identifiers with suspicion and verify them against the project before acting on them. The developer speaks to you as Nome. A phrase addressing you by name is how they mark a direct instruction; the surrounding speech is them thinking aloud, and is context rather than a request. Act on the instruction, and use the rest to inform how. Speech recognition frequently renders "Nome" as "node", so "hey node" is almost always this phrase rather than a reference to Node.js; read it as the developer addressing you and do not remark on the error.
 
 This label does two jobs. It is the entire substitute for a correction pass (FR-010, research.md R-103), and it is what makes the retained wake phrase legible (FR-008, FR-009): the phrase is left in the transcript because it marks the direct instruction, which only helps if the recipient knows that is what it is. It is configurable because its effectiveness depends on the agent model reading it.
 
-The label names the agent but deliberately does not list the configured phrases. The phrases are already present in the transcript, and they are configuration — a prose list of them would eventually disagree with `listenWakePhrases`, and the failure would be silent.
+The label calls out one accepted form by name. `hey node` is what the recogniser returns for `hey nome` for at least one speaker, consistently and despite vocabulary biasing, so it is an accepted variant (wake-phrase.md). It is also the only accepted form that is a sentence a developer could mean literally, which leaves an agent no way to tell an address from a topic; every other accepted form is nonsense in context and needs no explanation. Naming it here is cheaper than lengthening the phrase.
+
+Otherwise the label names the agent but deliberately does not list the configured phrases. The phrases are already present in the transcript, and they are configuration — a prose list of them would eventually disagree with `listenWakePhrases`, and the failure would be silent.
 
 `listenAutoSubmit` defaults to `true`, inverting feature 001's review-before-send default. That inversion is deliberate and is justified in the spec: the wake phrase _is_ the developer's confirming act. The option exists so the inversion can be undone during tuning, when a developer may want to see what a wake phrase would have submitted before trusting it to submit.
 
@@ -102,6 +104,8 @@ One thing is **not** reused as it stands, and Phase A0 exists to fix it: the rec
 FR-017 makes the two modes mutually exclusive, so they never capture concurrently — but the audio path must still be per-capture, because the next recorder in a listening session starts while the previous segment is still being uploaded.
 
 **Not used**: the correction endpoint and model. This feature makes no LLM calls (FR-010). Correction configuration remains valid for held-key dictation and is simply not consulted here.
+
+The transcription vocabulary is shared, and that is a constraint rather than a convenience. Both modes call the same transcription function, so a term added to bias the recogniser toward a wake word skews every dictated sentence toward a word only one mode cares about. Wake-phrase recognition is therefore handled by accepting the forms the recogniser produces (wake-phrase.md variants), not by biasing it toward the form we wanted. Nothing else leaks in the other direction: the transcript label, the wake phrases and the segmentation options are read only by this feature.
 
 ## Validation
 

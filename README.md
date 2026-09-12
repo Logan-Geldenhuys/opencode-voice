@@ -410,6 +410,19 @@ an address rather than as a stray word.
 It needs `sttApiEndpoint`; the segments are short and frequent, and local
 `whisper-cli` is not fast enough to keep up on CPU.
 
+Everything in this section belongs to continuous listening alone. Wake phrases,
+the transcript label, the agent's name and the segmentation options exist only
+here; held-key dictation has no wake phrase to match and no reason to tell the
+agent anything about how the words arrived, so it stays plain transcription
+followed by the correction pass described under [LLM endpoint](#llm-endpoint).
+Pause sensitivity does not carry over either: dictation stops when you release
+the key, so it trims leading silence and nothing more.
+
+What the two modes do share is the transcription service itself -
+`sttApiEndpoint`, `sttApiModel`, `sttVocabulary` and the credential. Keep
+`sttVocabulary` to terms that help both; biasing it toward a wake word would
+skew every dictated sentence toward a word only one mode cares about.
+
 ```jsonc
 {
   "plugin": [
@@ -474,19 +487,30 @@ of a word that almost never occurs in speech; `hey nome` is shorter to say and
 correspondingly closer to ordinary English, and its homophones are closer still.
 Both defaults are provided because the tradeoff is yours to make.
 
-Be careful adding homophones to a two-word phrase. Two obvious ones for "nome"
-are deliberately absent from its variants, because both occur in unremarkable
-speech about code:
+Be careful adding homophones to a two-word phrase. Several obvious ones for
+"nome" are deliberately absent from its variants, because they occur in
+unremarkable speech about code:
 
 ```
-"so I said hey name the function fetchUser and it worked"  -> would submit "so I said"
-"can you rename this hey known issue"                      -> would submit "can you rename this"
+"so I said hey name the function fetchUser and it worked"
+"can you rename this hey known issue"
+"hey names are hard"
 ```
+
+`hey node` is the exception, and it is accepted deliberately. It is simply what
+the recogniser returns for "hey nome" - consistently, and regardless of whether
+the term is added to `sttVocabulary` - so rejecting it would make the phrase
+unusable rather than safe. It costs roughly five false positives in sixteen
+utterances of ordinary Node.js talk, which is the price of a phrase that fires
+at all. Two things blunt it: a false positive sends the whole buffer rather than
+a truncated prefix, so nothing is silently cut in half; and the transcript label
+tells the agent that "hey node" is almost always the mis-transcribed phrase.
 
 A false negative costs you saying the phrase again. A false positive sends
-truncated speech to an agent holding file-modifying tools, and with
-`listenAutoSubmit` on it does so immediately. If calibration turns up a form
-that is also ordinary speech, lengthen the phrase rather than accept the form.
+speech to an agent holding file-modifying tools before you had finished
+composing it, and with `listenAutoSubmit` on it does so immediately. For any
+form other than the one the recogniser insists on, lengthen the phrase rather
+than accept the form.
 
 There is no LLM correction pass on continuously captured speech. Correcting each
 submission would add latency to every one of them, and a correction model that

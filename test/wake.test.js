@@ -287,11 +287,13 @@ test("the defaults compile", () => {
 });
 
 // "hey nome" is two tokens of ordinary English, and the homophones of "nome"
-// that were left out of its variants are ordinary English too. Both of these
-// occur in unremarkable speech about code, and accepting them would truncate
-// the prompt at a phrase the developer never said. The exclusion is a
-// deliberate choice recorded in lib/wake.js, so it is asserted rather than
-// left to whoever next edits the list.
+// that were left out of its variants are ordinary English too. These occur in
+// unremarkable speech about code, and accepting them would fire the phrase at
+// something the developer never said. The exclusion is a deliberate choice
+// recorded in lib/wake.js, so it is asserted rather than left to whoever next
+// edits the list. "hey node" is not among them: it is accepted deliberately,
+// because it is what the recogniser returns for this speaker, and the test
+// below proves it matches.
 test("homophones that are ordinary speech are not accepted forms", () => {
   const traps = [
     "so I said hey name the function fetchUser and it worked",
@@ -303,8 +305,20 @@ test("homophones that are ordinary speech are not accepted forms", () => {
   }
 });
 
+// The recogniser returns "Hey Node." for this speaker in every measured
+// utterance, so this is not one variant among several -- it is the form the
+// phrase actually arrives in. It is asserted separately because a loop over the
+// variant list would pass if someone quietly dropped it and left the others.
+test("the form the recogniser actually produces is accepted", () => {
+  const hit = findWake(["the parser is probably fine. Hey Node. Fix the failing test."], compiled);
+  assert.ok(hit, "hey node must match, or the phrase is unusable for this speaker");
+  assert.equal(hit.action, SUBMIT);
+  assert.equal(hit.before, "the parser is probably fine.");
+  assert.equal(hit.after, "Fix the failing test.");
+});
+
 test("the short phrase and its kept variants do match", () => {
-  for (const form of ["hey nome", "Hey, Nome.", "hey gnome", "hey nom", "hey no me"]) {
+  for (const form of ["hey nome", "Hey, Nome.", "hey node", "hey gnome", "hey nom", "hey no me"]) {
     const hit = findWake([`refactor the parser ${form}`], compiled);
     assert.ok(hit, form);
     assert.equal(hit.action, SUBMIT, form);

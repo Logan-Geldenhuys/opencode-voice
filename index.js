@@ -86,13 +86,25 @@ const LISTEN_DEFAULTS = {
   // says out loud is an address. The phrases themselves are deliberately not
   // listed here: they are present in the transcript, they are configurable, and
   // a list repeated in prose would eventually disagree with the configuration.
+  //
+  // The mis-transcription is called out by name for one reason: "hey node" is a
+  // sentence a developer could mean literally, so an agent reading it has no
+  // way to tell an address from a topic. Every other accepted form is nonsense
+  // in context and needs no explanation.
+  //
+  // This label belongs to continuous listening only. Held-key dictation
+  // transcribes and returns text; it has no wake phrase to explain and no
+  // reason to tell the agent anything about how the words arrived.
   listenTranscriptLabel:
     "The following is a voice transcript and may contain speech recognition errors, " +
     "particularly in code identifiers, file paths and technical terms. Treat unfamiliar " +
     "identifiers with suspicion and verify them against the project before acting on them. " +
     "The developer speaks to you as Nome. A phrase addressing you by name is how they mark " +
     "a direct instruction; the surrounding speech is them thinking aloud, and is context " +
-    "rather than a request. Act on the instruction, and use the rest to inform how.",
+    "rather than a request. Act on the instruction, and use the rest to inform how. " +
+    'Speech recognition frequently renders "Nome" as "node", so "hey node" is almost ' +
+    "always this phrase rather than a reference to Node.js; read it as the developer " +
+    "addressing you and do not remark on the error.",
 };
 
 // The host resolves {env:NAME} references in option values before the plugin
