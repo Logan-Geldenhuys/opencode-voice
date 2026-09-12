@@ -302,6 +302,10 @@ test("the name alone is not an address", () => {
     "hey names are hard",
     "does node execute top level await yet",
     "add a node execute step to the pipeline",
+    // A real utterance, dictated while the three-token phrase was live. It
+    // names the assistant and asks it something, and it still must not fire:
+    // addressing the assistant is not the same as instructing it to go.
+    "hey noam tell me what i'm saying",
   ];
   for (const trap of traps) {
     assert.equal(findWake([trap], compiled), null, trap);
@@ -312,7 +316,7 @@ test("the name alone is not an address", () => {
 // list is the measurement, not a guess: "node" and "norm" both came back from
 // real utterances of "hey nome" on the same hardware, which is why the phrase
 // does not depend on any one of them being right.
-const OBSERVED_NAMES = ["nome", "node", "norm", "nom", "gnome", "no me"];
+const OBSERVED_NAMES = ["nome", "node", "norm", "nom", "gnome", "no me", "noam"];
 
 test("every observed rendering of the name is accepted", () => {
   for (const name of OBSERVED_NAMES) {

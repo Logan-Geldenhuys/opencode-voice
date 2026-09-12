@@ -114,6 +114,44 @@ If the source list is still empty after a restart, check Windows
 access" and "Let desktop apps access your microphone" (WSLg captures audio via
 a desktop RDP client), then run `wsl --update` for the latest WSLg.
 
+**A microphone that records silence without erroring.** WSLg loads
+`module-rdp-sink` and `module-rdp-source` at boot, and the source can go
+missing while the sink stays put. `pactl info` still succeeds, so the server
+looks healthy, and recording succeeds too — sox captures digital silence and
+exits 0. Nothing reports a failure; transcripts just come back empty or
+invented. There are two shapes:
+
+```console
+$ pactl info | grep 'Default Source'
+Default Source: RDPSource        # names a source that pactl list sources does not show
+Default Source: RDPSink.monitor  # exists, but loops back output instead of a microphone
+```
+
+Both commands refuse to record when they see this, naming which shape it is.
+To repair it in place, without closing your WSL sessions:
+
+```bash
+pactl load-module module-rdp-source source_name=RDPSource
+pactl set-default-source RDPSource
+```
+
+Loading the module is not enough on its own when the default has already been
+reassigned to a monitor, which is why the default is claimed back explicitly.
+To confirm the device is live rather than merely present, record a couple of
+seconds and read the level — a silent room peaks near 0.1%, speech near 50%:
+
+```bash
+sox -t pulseaudio default -r 16000 -c 1 -b 16 /tmp/mic.wav trim 0 2
+sox /tmp/mic.wav -n stat 2>&1 | grep 'Maximum amplitude'
+```
+
+Since this recurs at boot, it is worth making the repair automatic. WSLg's
+PulseAudio runs in the WSLg VM rather than in your distro, so there is no local
+daemon to configure and no `default.pa` to edit — the module has to be loaded by
+a client. A `systemd --user` oneshot that runs the two commands above, guarded
+so it does nothing when a real capture source is already the default, covers it
+once per boot with no per-shell cost.
+
 Verify your microphone by recording a 3-second clip and playing it back.
 Remove the temp file once you've heard yourself clearly; skip building
 whisper.cpp until this works, otherwise `/stt-mic` will have nothing to select:

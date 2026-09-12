@@ -14,6 +14,7 @@ import {
   buildVocabularyPrompt,
   buildWhisperArgs,
   createCapture,
+  findDefaultSourceFault,
   groupTranscriptionTiers,
   isOpenRouterEndpoint,
   isWSL,
@@ -405,4 +406,49 @@ test("returns nothing for a catalogue that is not a list", () => {
   assert.deepEqual(groupTranscriptionTiers(null), []);
   assert.deepEqual(groupTranscriptionTiers("gpt-transcribe"), []);
   assert.deepEqual(groupTranscriptionTiers([]), []);
+});
+
+// Both states were observed on this machine rather than imagined. A reachable
+// server that cannot hear anything is the only audio fault that reports no
+// error at all: sox records digital silence and exits 0, so unless it is
+// detected up front the microphone simply appears to work.
+test("a default source naming a departed device is a fault", () => {
+  const info = "Server Name: pulseaudio\nDefault Sink: RDPSink\nDefault Source: RDPSource\n";
+  const sources = "1\tRDPSink.monitor\tmodule-rdp-sink.c\ts16le 2ch 44100Hz\tSUSPENDED\n";
+  assert.deepEqual(findDefaultSourceFault(info, sources), {
+    reason: "missing",
+    name: "RDPSource",
+  });
+});
+
+// Unloading the module by hand produced this: the server quietly reassigned the
+// default to the sink monitor, which exists and therefore passes an
+// existence check while still capturing output instead of a microphone.
+test("a default source that is a sink monitor is a fault", () => {
+  const info = "Default Source: RDPSink.monitor\n";
+  const sources = "1\tRDPSink.monitor\tmodule-rdp-sink.c\ts16le 2ch 44100Hz\tSUSPENDED\n";
+  assert.deepEqual(findDefaultSourceFault(info, sources), {
+    reason: "monitor",
+    name: "RDPSink.monitor",
+  });
+});
+
+test("a default source that exists and is not a monitor is not a fault", () => {
+  const info = "Default Source: RDPSource\n";
+  const sources =
+    "1\tRDPSink.monitor\tmodule-rdp-sink.c\ts16le 2ch 44100Hz\tSUSPENDED\n" +
+    "3\tRDPSource\tmodule-rdp-source.c\ts16le 1ch 44100Hz\tSUSPENDED\n";
+  assert.equal(findDefaultSourceFault(info, sources), null);
+});
+
+// The check must never be the reason a recording is refused when it cannot
+// actually tell, so anything it does not understand reads as no fault.
+test("an unreadable or deferred default source is not a fault", () => {
+  assert.equal(findDefaultSourceFault("", ""), null, "no output at all");
+  assert.equal(findDefaultSourceFault("Default Sink: RDPSink\n", ""), null, "no source line");
+  assert.equal(
+    findDefaultSourceFault("Default Source: @DEFAULT_SOURCE@\n", ""),
+    null,
+    "unresolved placeholder",
+  );
 });
