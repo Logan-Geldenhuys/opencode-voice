@@ -19,6 +19,7 @@ import {
   groupTranscriptionTiers,
   isOpenRouterEndpoint,
   isWSL,
+  padLeadingSilence,
   parsePactlSources,
   parsePactlSourcesShort,
 } from "../lib/stt.js";
@@ -478,4 +479,83 @@ test("the composed prompt reaches the request as one field", () => {
 
   assert.equal(body.get("prompt"), "Keep every word.\nstt");
   assert.equal(body.get("model"), "whisper-1");
+});
+
+// A helper rather than a fixture, so these tests assert against the header
+// layout sox actually writes rather than one recorded by hand.
+function wav({ channels = 1, rate = 16000, bits = 16, frames = 100 } = {}) {
+  const blockAlign = (channels * bits) / 8;
+  const dataBytes = frames * blockAlign;
+  const buf = Buffer.alloc(44 + dataBytes);
+  buf.write("RIFF", 0, "latin1");
+  buf.writeUInt32LE(36 + dataBytes, 4);
+  buf.write("WAVE", 8, "latin1");
+  buf.write("fmt ", 12, "latin1");
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(channels, 22);
+  buf.writeUInt32LE(rate, 24);
+  buf.writeUInt32LE(rate * blockAlign, 28);
+  buf.writeUInt16LE(blockAlign, 32);
+  buf.writeUInt16LE(bits, 34);
+  buf.write("data", 36, "latin1");
+  buf.writeUInt32LE(dataBytes, 40);
+  buf.fill(0x7f, 44);
+  return buf;
+}
+
+test("leading silence is prepended as whole frames and declared in both lengths", () => {
+  const original = wav({ frames: 100 });
+  const padded = padLeadingSilence(original, 300);
+
+  // 300ms at 16kHz mono 16-bit is 4800 frames of 2 bytes.
+  const added = 9600;
+  assert.equal(padded.length, original.length + added);
+  assert.equal(padded.readUInt32LE(4), original.readUInt32LE(4) + added);
+  assert.equal(padded.readUInt32LE(40), original.readUInt32LE(40) + added);
+
+  // The padding is silence and the samples survive it unshifted.
+  assert.ok(padded.subarray(44, 44 + added).every((byte) => byte === 0));
+  assert.deepEqual(padded.subarray(44 + added), original.subarray(44));
+});
+
+test("padding stays frame aligned on a wider format", () => {
+  // Stereo 16-bit has a 4-byte frame, so a byte count that happened to work for
+  // mono would shift every sample here and turn the recording into noise.
+  const padded = padLeadingSilence(wav({ channels: 2, rate: 44100 }), 300);
+  const added = padded.readUInt32LE(40) - wav({ channels: 2, rate: 44100 }).readUInt32LE(40);
+
+  assert.equal(added % 4, 0);
+  assert.equal(added, 52920);
+});
+
+test("anything that is not the canonical header is returned untouched", () => {
+  const canonical = wav();
+
+  const extensible = Buffer.from(canonical);
+  extensible.writeUInt32LE(18, 16); // fmt chunk with extension bytes
+  assert.equal(padLeadingSilence(extensible, 300), extensible);
+
+  const compressed = Buffer.from(canonical);
+  compressed.writeUInt16LE(3, 20); // float rather than PCM
+  assert.equal(padLeadingSilence(compressed, 300), compressed);
+
+  const listChunk = Buffer.from(canonical);
+  listChunk.write("LIST", 36, "latin1");
+  assert.equal(padLeadingSilence(listChunk, 300), listChunk);
+
+  assert.equal(
+    padLeadingSilence(Buffer.from("not a wav at all"), 300).toString(),
+    "not a wav at all",
+  );
+});
+
+test("a header with no samples and a request for no padding are both left alone", () => {
+  const headerOnly = wav({ frames: 0 });
+  assert.equal(padLeadingSilence(headerOnly, 300), headerOnly);
+
+  const original = wav();
+  assert.equal(padLeadingSilence(original, 0), original);
+  assert.equal(padLeadingSilence(original, -5), original);
+  assert.equal(padLeadingSilence("not a buffer", 300), "not a buffer");
 });
