@@ -1,11 +1,14 @@
-[![CI](https://github.com/renjfk/opencode-voice/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/renjfk/opencode-voice/actions/workflows/ci.yml)
+[![CI](https://github.com/Logan-Geldenhuys/opencode-voice/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Logan-Geldenhuys/opencode-voice/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![npm](https://img.shields.io/npm/v/@renjfk/opencode-voice)](https://www.npmjs.com/package/@renjfk/opencode-voice)
-[![Downloads](https://img.shields.io/npm/dm/@renjfk/opencode-voice)](https://www.npmjs.com/package/@renjfk/opencode-voice)
 
-# opencode-voice
+# opencode-nome-voice
 
 Speech-to-text and text-to-speech plugin for [OpenCode](https://opencode.ai/).
+
+A fork of [renjfk/opencode-voice](https://github.com/renjfk/opencode-voice)
+that adds continuous listening with a spoken wake phrase, transcription through
+a corporate AI gateway, and credentials read from OpenCode's own auth store.
+The package is not published to npm, so install it from git or a local path.
 
 Record voice prompts with local whisper transcription, hear assistant responses
 spoken aloud via Piper TTS. Both directions use an LLM to normalize text for
@@ -13,8 +16,9 @@ natural speech (fixing homophones, splitting camelCase identifiers, summarizing
 code-heavy responses, etc.).
 
 There is also a hands-free mode: leave it listening, think aloud across as many
-pauses as you like, and say a wake phrase to send everything you have said to
-the agent. See [Continuous listening](#continuous-listening-optional).
+pauses as you like, and address the agent as "hey nome" to send everything you
+have said. The name is where this fork gets its own name, and it is
+configurable. See [Continuous listening](#continuous-listening-optional).
 
 ## Install
 
@@ -36,7 +40,7 @@ exist). You must configure at least `endpoint` and `model`:
   },
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "endpoint": "https://api.anthropic.com/v1",
         "model": "claude-haiku-4-5",
@@ -53,7 +57,7 @@ If OpenCode keeps using an older published version of the plugin after an
 update, clear the cached package and restart OpenCode:
 
 ```bash
-rm -rf ~/.cache/opencode/packages/@renjfk/
+rm -rf ~/.cache/opencode/packages/opencode-nome-voice*
 ```
 
 ## Prerequisites
@@ -283,7 +287,7 @@ option is optional - omit it for unauthenticated endpoints like Ollama.
 {
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "endpoint": "https://api.anthropic.com/v1",
         "model": "claude-haiku-4-5",
@@ -300,7 +304,7 @@ For unauthenticated local endpoints (e.g. Ollama):
 {
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "endpoint": "http://localhost:11434/v1",
         "model": "llama3.2"
@@ -351,7 +355,7 @@ plugin on a machine without whisper-cpp installed.
 {
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "sttApiEndpoint": "http://127.0.0.1:8000/v1",
         "sttApiModel": "gpt-transcribe",
@@ -395,7 +399,7 @@ environment variable exported once at shell startup can be days stale.
 {
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "sttApiEndpoint": "{env:MY_GATEWAY_URL}",
         "credentialStorePath": "~/.local/share/opencode/auth.json",
@@ -469,7 +473,7 @@ welcome in a dictated sentence.
 {
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "sttApiEndpoint": "{env:MY_GATEWAY_URL}",
         "listenSilenceDurationMs": 700,
@@ -678,7 +682,7 @@ up or how responses are spoken.
 {
   "plugin": [
     [
-      "@renjfk/opencode-voice",
+      "github:Logan-Geldenhuys/opencode-voice",
       {
         "sttPrompt": "~/.config/opencode/stt-prompt.md",
         "ttsAutoPrompt": "~/.config/opencode/tts-auto-prompt.md",
@@ -810,7 +814,7 @@ When enabled (`/tts-mode`), the plugin automatically speaks:
 
 ## Contributing
 
-opencode-voice is open to contributions and ideas!
+opencode-nome-voice is open to contributions and ideas!
 
 ### Issue conventions
 
@@ -835,12 +839,12 @@ npm run fmt:fix      # oxfmt --write
 ### Test local plugin in OpenCode
 
 To test unpublished changes in the OpenCode TUI, point `~/.config/opencode/tui.json`
-at the local repo path, not the npm package name:
+at the local repo path rather than a git or npm spec:
 
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["/Users/your-user/opencode-voice"]
+  "plugin": ["/home/your-user/opencode-nome-voice"]
 }
 ```
 

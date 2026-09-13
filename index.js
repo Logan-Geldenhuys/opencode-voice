@@ -1,4 +1,4 @@
-// opencode-voice: Speech-to-text and text-to-speech for OpenCode.
+// opencode-nome-voice: Speech-to-text and text-to-speech for OpenCode.
 //
 // STT: Record voice via sox, transcribe with whisper-cpp, normalize with
 //      an OpenAI-compatible LLM, append to the TUI prompt.
@@ -13,7 +13,7 @@
 // Configuration via tui.jsonc plugin options. The host substitutes
 // {env:NAME} into option values before the plugin is handed them, so the
 // gateway location never appears in tracked configuration:
-//   ["/path/to/opencode-voice", { "sttApiEndpoint": "{env:MY_GATEWAY}" }]
+//   ["/path/to/opencode-nome-voice", { "sttApiEndpoint": "{env:MY_GATEWAY}" }]
 //
 // `endpoint` and `sttApiEndpoint` each default to the other, so a working
 // configuration names the gateway once. See
@@ -386,7 +386,7 @@ function loadPromptFile(filePath, logger, name) {
 }
 
 export default {
-  id: "opencode-voice",
+  id: "opencode-nome-voice",
   tui: async (api, options) => {
     const { kv } = api;
     const logger = createLogger(api.client);
