@@ -489,7 +489,7 @@ welcome in a dictated sentence.
           },
           {
             "canonical": "hey nome",
-            "variants": ["hey node", "hey noam"],
+            "variants": ["hey node", "hey noam", "hey norm"],
             "action": "submit",
           },
           {
@@ -566,13 +566,19 @@ buys the margin, and `execute` is not special; `all yours`, `crack on`,
 The defaults ship both lengths, because the two failure modes are not
 symmetrical across renderings:
 
-- **Three tokens** for every rendering, including the ones that collide with
-  ordinary English. `hey norm` is a colleague, `hey gnome` is a desktop, and
-  `hey no me` is the tail of "no, me neither"; those are only safe bracketed.
-- **Two tokens** for `hey nome`, `hey node` and `hey noam` only — the
-  renderings observed in real use, none of which is a phrase you would say
-  about anything else. Plus `hey nome stop`, so "Hey Noam, stop." interrupts
-  instead of submitting.
+- **Three tokens** for every rendering, including the ones nothing has actually
+  produced here. `hey gnome` is a desktop and `hey no me` is the tail of "no,
+  me neither"; those are only safe bracketed.
+- **Two tokens** for `hey nome`, `hey node`, `hey noam` and `hey norm` — the
+  renderings observed in real use. Plus `hey nome stop`, so "Hey Noam, stop."
+  interrupts instead of submitting.
+
+`hey norm` is the awkward one, and it is accepted anyway. It collides with a
+colleague's name, but the literal transcription model returns it from real
+speech, and a rendering the recogniser actually produces is not a hypothetical
+to be avoided. Excluding it means the address silently does nothing, which is
+worse than an occasional unwanted submission: one is invisible and looks like a
+broken feature, the other is visible and recoverable with `/listen-discard`.
 
 The short form accepts false positives the long one refused, and the honest
 example is real: `"hey noam tell me what i'm saying"` fires. Under the vocative

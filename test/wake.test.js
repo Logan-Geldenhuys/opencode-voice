@@ -286,16 +286,17 @@ test("the defaults compile", () => {
   }
 });
 
-// The renderings that collide with ordinary speech are kept out of the
-// two-token address and only ever appear in a longer form. These are the
-// collisions, and they must not fire: "hey norm" is a colleague, "hey gnome"
-// is a desktop, "hey no me" is the tail of "no, me neither", and "name",
-// "known" and "names" are ordinary words this speaker has never produced for
-// the address. This is what makes the short form affordable, so it is asserted
-// rather than left to whoever next edits the variant list.
+// Renderings nothing has actually produced are kept out of the two-token
+// address and only ever appear in a longer form. These are the collisions, and
+// they must not fire: "hey gnome" is a desktop, "hey no me" is the tail of
+// "no, me neither", and "name", "known" and "names" are ordinary words this
+// speaker has never produced for the address. This is what makes the short
+// form affordable, so it is asserted rather than left to whoever next edits
+// the variant list. "hey norm" is deliberately not among them: the recogniser
+// returns it from real speech, so it is accepted short and its cost is
+// asserted below instead.
 test("renderings that collide with ordinary speech are not accepted short", () => {
   const traps = [
-    "hey norm reviewed the pull request",
     "hey gnome keyring keeps locking itself",
     "hey no me neither honestly",
     "hey nom nom nom said the cookie monster",
@@ -313,20 +314,40 @@ test("renderings that collide with ordinary speech are not accepted short", () =
   }
 });
 
-// The cost of the short form, recorded rather than hidden. Both of these fire,
-// and both are sentences about Node.js rather than addresses to the assistant.
-// They are accepted because the interjection is what makes them unnatural:
-// dictation says "node is crashing", not "hey node is crashing". The recovery
-// is to discard the buffer, and with review-before-send configured the cost is
-// a discarded prompt rather than an unintended action. If this assertion ever
-// starts failing, someone has tightened the phrase - which is a fix, not a
-// regression, and this test should be deleted rather than repaired.
+// The cost of the short form, recorded rather than hidden. All of these fire,
+// and none is an address to the assistant: two are sentences about Node.js and
+// one is about a colleague. They are accepted because the recogniser returns
+// "node" and "norm" for the name, so refusing them costs an address that
+// silently never fires - the worse failure, because an unwanted submission is
+// visible and recoverable while a dead phrase looks like a broken feature. The
+// interjection is also what makes them unnatural: dictation says "node is
+// crashing", not "hey node is crashing". The recovery is to discard the
+// buffer. If this assertion ever starts failing, someone has tightened the
+// phrase - which is a fix, not a regression, and this test should be deleted
+// rather than repaired.
 test("the short form fires on speech about Node.js, which is the accepted cost", () => {
   for (const utterance of [
     "hey node is crashing on startup",
     "i said hey node and it ignored me",
+    "hey norm reviewed the pull request",
   ]) {
     assert.notEqual(findWake([utterance], compiled), null, utterance);
+  }
+});
+
+// The renderings accepted at two tokens: every one of them has come back from
+// a real utterance of "hey nome" on this hardware. The list is deliberately
+// shorter than OBSERVED_NAMES below, because a rendering nobody has produced
+// buys nothing and costs a collision.
+const SHORT_NAMES = ["nome", "node", "noam", "norm"];
+
+test("every rendering the recogniser returns is accepted at two tokens", () => {
+  const compiledShort = compilePhrases(DEFAULT_WAKE_PHRASES);
+  for (const name of SHORT_NAMES) {
+    const hit = findWake([`hey ${name}, fix the failing test`], compiledShort);
+    assert.ok(hit, name);
+    assert.equal(hit.action, SUBMIT, name);
+    assert.equal(hit.after, "fix the failing test", name);
   }
 });
 
@@ -339,6 +360,9 @@ test("the address opens a request and sends it", () => {
     "Hey Noam, what's on the fourth page?",
     "Hey, Noam, go to page five.",
     "Go to page five. Hey Noam, can you open the overview mode?",
+    // Returned by the literal transcription model from real speech, which is
+    // why "norm" is accepted at two tokens rather than only in a longer form.
+    "Hey, Norm. Hey, Nome.",
   ]) {
     const hit = findWake([utterance], compiledShort);
     assert.notEqual(hit, null, utterance);
@@ -352,7 +376,7 @@ test("the address opens a request and sends it", () => {
 // the two-token address, so this holds by the compile-time sort (SC-003).
 test("the short address with a stop interrupts rather than submits", () => {
   const compiledShort = compilePhrases(DEFAULT_WAKE_PHRASES);
-  for (const name of ["nome", "node", "noam"]) {
+  for (const name of SHORT_NAMES) {
     const hit = findWake([`hey ${name} stop and look at the parser`], compiledShort);
     assert.notEqual(hit, null, name);
     assert.equal(hit.action, INTERRUPT_SUBMIT, name);
