@@ -53,6 +53,12 @@ import { createLogger } from "./lib/logger.js";
 const OPTION_DEFAULTS = {
   sttApiModel: "gpt-transcribe",
   sttVocabulary: [],
+  // Empty by default. A style instruction is only worth sending to a model
+  // that honours it, and which models do is a property of the deployment
+  // rather than of the plugin: on the gateway this was built against,
+  // `whisper-1` follows an instruction and `gpt-transcribe` ignores it. A
+  // default here would therefore be a claim about someone else's service.
+  sttApiInstruction: "",
   sttTimeoutMs: 15000,
   model: "gpt-4.1",
   maxTokens: 400,
@@ -304,6 +310,12 @@ function resolveOptions(rawOptions) {
     sttVocabulary: isSupplied(opts.sttVocabulary)
       ? resolveStringArray("sttVocabulary", opts.sttVocabulary, [], errors)
       : OPTION_DEFAULTS.sttVocabulary,
+    sttApiInstruction: resolveString(
+      "sttApiInstruction",
+      opts.sttApiInstruction,
+      OPTION_DEFAULTS.sttApiInstruction,
+      errors,
+    ),
     sttTimeoutMs: resolvePositiveInteger(
       "sttTimeoutMs",
       opts.sttTimeoutMs,

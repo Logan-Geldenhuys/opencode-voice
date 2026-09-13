@@ -24,12 +24,13 @@ Consequently there are **no `*Env` options for URLs**. An earlier revision of th
 
 ### Transcription
 
-| Option           | Type     | Default          | Meaning                                                                                                   |
-| ---------------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `sttApiEndpoint` | string   | `endpoint`       | Base URL of the transcription service. Requests go to `${base}/audio/transcriptions` and `${base}/models` |
-| `sttApiModel`    | string   | `gpt-transcribe` | Transcription tier. Overridable at runtime via `api.kv`                                                   |
-| `sttVocabulary`  | string[] | `[]`             | Terms biased into recognition. Applied as the request's prompt parameter                                  |
-| `sttTimeoutMs`   | number   | `15000`          | Bound on a transcription request (FR-018)                                                                 |
+| Option              | Type     | Default          | Meaning                                                                                                       |
+| ------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| `sttApiEndpoint`    | string   | `endpoint`       | Base URL of the transcription service. Requests go to `${base}/audio/transcriptions` and `${base}/models`     |
+| `sttApiModel`       | string   | `gpt-transcribe` | Transcription tier. Overridable at runtime via `api.kv`                                                       |
+| `sttVocabulary`     | string[] | `[]`             | Terms biased into recognition. Applied as the request's prompt parameter                                      |
+| `sttApiInstruction` | string   | `""`             | Style instruction composed ahead of the vocabulary in the same prompt parameter. Honoured only by some models |
+| `sttTimeoutMs`      | number   | `15000`          | Bound on a transcription request (FR-018)                                                                     |
 
 When no transcription endpoint resolves, the plugin falls back to upstream's on-device path. On this machine that path is unavailable, and the resulting error must say so rather than reporting a missing model file.
 

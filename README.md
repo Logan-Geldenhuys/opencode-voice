@@ -365,7 +365,8 @@ plugin on a machine without whisper-cpp installed.
 
 - `sttApiEndpoint` _(optional)_ - OpenAI-compatible base URL with `/audio/transcriptions` support. Defaults to `endpoint` when omitted
 - `sttApiModel` _(optional)_ - transcription tier to pass to the API (default: `gpt-transcribe`). Can be changed at runtime via `/stt-model`, which lists what the endpoint's `/models` listing advertises. Tiers that have been measured for both latency and accuracy are grouped first, fastest first; everything else the service offers follows in a second group
-- `sttVocabulary` _(optional)_ - array of terms to bias transcription toward, e.g. project names, tool names, or identifiers the service otherwise mishears (default: none). Passed as the transcription request's `prompt` parameter
+- `sttVocabulary` _(optional)_ - array of terms to bias transcription toward, e.g. project names, tool names, or identifiers the service otherwise mishears (default: none). Composed into the transcription request's `prompt` parameter
+- `sttApiInstruction` _(optional)_ - free-form instruction sent ahead of `sttVocabulary` in the same `prompt` parameter, for asking the service to transcribe literally rather than tidily (default: none). Whether it has any effect is a property of the model, not of the plugin: on this gateway `whisper-1` obeys it, and `gpt-transcribe` ignores it entirely across repeated identical runs. Measure before relying on it
 - `sttTimeoutMs` _(optional)_ - bound on a single transcription request (default: `15000`)
 - `apiKeyEnv` _(optional)_ - environment variable holding the API key. See [Credentials](#credentials)
 
@@ -457,9 +458,12 @@ Pause sensitivity does not carry over either: dictation stops when you release
 the key, so it trims leading silence and nothing more.
 
 What the two modes do share is the transcription service itself -
-`sttApiEndpoint`, `sttApiModel`, `sttVocabulary` and the credential. Keep
-`sttVocabulary` to terms that help both; biasing it toward a wake word would
-skew every dictated sentence toward a word only one mode cares about.
+`sttApiEndpoint`, `sttApiModel`, `sttVocabulary`, `sttApiInstruction` and the
+credential. Keep `sttVocabulary` to terms that help both; biasing it toward a
+wake word would skew every dictated sentence toward a word only one mode cares
+about. `sttApiInstruction` is worth pointing at both, though: a model that
+drops "hey" as filler breaks the wake phrase outright, and it is no more
+welcome in a dictated sentence.
 
 ```jsonc
 {

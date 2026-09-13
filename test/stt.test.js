@@ -11,6 +11,7 @@ import {
   buildMultipartTranscriptionRequest,
   buildOpenRouterTranscriptionRequest,
   buildRecordArgs,
+  buildTranscriptionPrompt,
   buildVocabularyPrompt,
   buildWhisperArgs,
   createCapture,
@@ -451,4 +452,30 @@ test("an unreadable or deferred default source is not a fault", () => {
     null,
     "unresolved placeholder",
   );
+});
+
+test("a style instruction leads the prompt and the vocabulary follows it", () => {
+  const prompt = buildTranscriptionPrompt("Transcribe word for word.", ["stt", "kv"]);
+
+  assert.equal(prompt, "Transcribe word for word.\nstt, kv");
+});
+
+test("either half of the prompt stands alone", () => {
+  assert.equal(buildTranscriptionPrompt("Be literal.", []), "Be literal.");
+  assert.equal(buildTranscriptionPrompt("", ["stt"]), "stt");
+  assert.equal(buildTranscriptionPrompt("   ", ["stt"]), "stt");
+});
+
+test("an absent prompt is empty rather than blank, so the field can be omitted", () => {
+  assert.equal(buildTranscriptionPrompt("", []), "");
+  assert.equal(buildTranscriptionPrompt(undefined, undefined), "");
+  assert.equal(buildTranscriptionPrompt(null, null), "");
+});
+
+test("the composed prompt reaches the request as one field", () => {
+  const prompt = buildTranscriptionPrompt("Keep every word.", ["stt"]);
+  const { body } = buildMultipartTranscriptionRequest("whisper-1", Buffer.from("x"), "k", prompt);
+
+  assert.equal(body.get("prompt"), "Keep every word.\nstt");
+  assert.equal(body.get("model"), "whisper-1");
 });
